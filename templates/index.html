@@ -913,6 +913,58 @@
       if (started) ctx.stroke();
     }
 
+    function latestFiniteValue(points, accessor) {
+      for (let i = points.length - 1; i >= 0; i -= 1) {
+        const value = accessor(points[i]);
+        if (Number.isFinite(value)) return value;
+      }
+      return null;
+    }
+
+    function formatMarkerValue(value) {
+      if (!Number.isFinite(value)) return "--";
+      return String(Number.parseFloat(value.toPrecision(12)));
+    }
+
+    function drawSideValueMarker(ctx, bounds, range, value, side, color, labelText) {
+      if (!range || !Number.isFinite(value)) return;
+      const span = range.max - range.min || 1;
+      const unclampedY = bounds.top + ((range.max - value) / span) * (bounds.bottom - bounds.top);
+      const yPad = Math.max(10, Math.round(bounds.scale * 10));
+      const y = Math.max(bounds.top + yPad, Math.min(bounds.bottom - yPad, unclampedY));
+      const markerLen = Math.max(8, Math.round(bounds.scale * 8));
+      const markerGap = Math.max(10, Math.round(bounds.scale * 10));
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = Math.max(2, Math.round(bounds.scale * 2));
+      ctx.font = `700 ${Math.max(11, Math.round(bounds.scale * 11))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+      ctx.textBaseline = "middle";
+
+      if (side === "left") {
+        const x0 = bounds.left;
+        const x1 = bounds.left - markerLen;
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.stroke();
+        ctx.textAlign = "right";
+        ctx.fillText(labelText, x1 - markerGap, y);
+      } else {
+        const x0 = bounds.right;
+        const x1 = bounds.right + markerLen;
+        ctx.beginPath();
+        ctx.moveTo(x0, y);
+        ctx.lineTo(x1, y);
+        ctx.stroke();
+        ctx.textAlign = "left";
+        ctx.fillText(labelText, x1 + markerGap, y);
+      }
+
+      ctx.restore();
+    }
+
     function drawChart() {
       if (!state.showTemp && !state.showHumidity) {
         drawMessage("Enable temperature and/or humidity to draw the graph.");
@@ -928,9 +980,8 @@
       const dpr = resizeCanvasForDisplay();
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const hasDualAxis = state.showTemp && state.showHumidity;
-      const leftPad = Math.round(58 * dpr);
-      const rightPad = hasDualAxis ? Math.round(68 * dpr) : Math.round(20 * dpr);
+      const leftPad = state.showTemp ? Math.round(90 * dpr) : Math.round(58 * dpr);
+      const rightPad = state.showHumidity ? Math.round(96 * dpr) : Math.round(20 * dpr);
       const topPad = Math.round(86 * dpr);
       const bottomPad = Math.round(58 * dpr);
 
@@ -1023,6 +1074,42 @@
           plotHeight,
           plotWidth,
         );
+      }
+
+      if (state.showTemp && tempRange) {
+        const latestTemp = latestFiniteValue(
+          state.points,
+          (p) => convertTempFromC(Number(p.temperature_c)),
+        );
+        if (latestTemp !== null) {
+          drawSideValueMarker(
+            ctx,
+            bounds,
+            tempRange,
+            latestTemp,
+            "left",
+            lineColorTemp(),
+            `${formatMarkerValue(latestTemp)} ${tempUnitSuffix()}`,
+          );
+        }
+      }
+
+      if (state.showHumidity && humidityRange) {
+        const latestRh = latestFiniteValue(
+          state.points,
+          (p) => Number(p.humidity_pct),
+        );
+        if (latestRh !== null) {
+          drawSideValueMarker(
+            ctx,
+            bounds,
+            humidityRange,
+            latestRh,
+            "right",
+            lineColorHumidity(),
+            `${formatMarkerValue(latestRh)}%`,
+          );
+        }
       }
     }
 
