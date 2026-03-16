@@ -124,13 +124,28 @@
       pointer-events: none;
     }
 
-    .time-box {
+    #currentTimeDisplay {
+      position: absolute;
+      top: 1.06rem;
+      left: 3.7rem;
+      z-index: 6;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: #23485f;
+      letter-spacing: 0.01em;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .last-update-box {
       position: absolute;
       right: 0.78rem;
       bottom: 0.56rem;
       z-index: 3;
-      display: grid;
-      gap: 0.12rem;
+      display: flex;
+      gap: 0.35rem;
+      align-items: baseline;
+      white-space: nowrap;
       font-size: 0.84rem;
       color: var(--muted);
       background: rgba(255, 255, 255, 0.78);
@@ -138,13 +153,6 @@
       border-radius: 10px;
       padding: 0.24rem 0.52rem;
       pointer-events: none;
-    }
-
-    .time-row {
-      display: flex;
-      gap: 0.35rem;
-      align-items: baseline;
-      white-space: nowrap;
     }
 
     .time-label {
@@ -393,7 +401,13 @@
         justify-content: center;
       }
 
-      .time-box {
+      #currentTimeDisplay {
+        top: 0.98rem;
+        left: 3.6rem;
+        font-size: 0.85rem;
+      }
+
+      .last-update-box {
         right: 0.7rem;
         bottom: 3.05rem;
       }
@@ -412,6 +426,7 @@
         <span class="bar"></span>
         <span class="bar"></span>
       </button>
+      <div id="currentTimeDisplay">--:--:--</div>
       <div id="chartTitle">ThermPro Monitor</div>
       <div id="batteryBadge">Battery: --</div>
       <div class="legend">
@@ -419,9 +434,8 @@
         <span><span class="swatch temp"></span>Temperature: <span id="currentTempValue">--</span></span>
         <span><span class="swatch hum"></span>Humidity: <span id="currentHumidityValue">--</span></span>
       </div>
-      <div class="time-box">
-        <div class="time-row"><span class="time-label">Now:</span><span id="currentTimeValue">--</span></div>
-        <div class="time-row"><span class="time-label">Last update:</span><span id="lastUpdateValue">--</span></div>
+      <div class="last-update-box">
+        <span class="time-label">Last update:</span><span id="lastUpdateValue">--</span>
       </div>
       <canvas id="chart"></canvas>
     </section>
@@ -484,6 +498,7 @@
     const MAX_SECONDS = 172800;
     const REFRESH_MS = 10000;
     const ALIAS_STORAGE_KEY = "thermpro_sensor_aliases_v1";
+    const SETTINGS_STORAGE_KEY = "thermpro_dashboard_settings_v1";
 
     const state = {
       devices: [],
@@ -524,7 +539,7 @@
       chartTitle: document.getElementById("chartTitle"),
       currentTempValue: document.getElementById("currentTempValue"),
       currentHumidityValue: document.getElementById("currentHumidityValue"),
-      currentTimeValue: document.getElementById("currentTimeValue"),
+      currentTimeDisplay: document.getElementById("currentTimeDisplay"),
       lastUpdateValue: document.getElementById("lastUpdateValue"),
     };
 
@@ -550,6 +565,57 @@
         localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(state.sensorAliases));
       } catch (_) {
       }
+    }
+
+    function loadDashboardSettings() {
+      try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return;
+
+        if (typeof parsed.selectedAddress === "string") {
+          state.selectedAddress = parsed.selectedAddress || null;
+        }
+        if (typeof parsed.windowSeconds === "number") {
+          state.windowSeconds = Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, Math.round(parsed.windowSeconds)));
+        }
+        if (typeof parsed.showTemp === "boolean") {
+          state.showTemp = parsed.showTemp;
+        }
+        if (typeof parsed.showHumidity === "boolean") {
+          state.showHumidity = parsed.showHumidity;
+        }
+        if (parsed.temperatureUnit === "C" || parsed.temperatureUnit === "F") {
+          state.temperatureUnit = parsed.temperatureUnit;
+        }
+      } catch (_) {
+      }
+    }
+
+    function persistDashboardSettings() {
+      try {
+        localStorage.setItem(
+          SETTINGS_STORAGE_KEY,
+          JSON.stringify({
+            selectedAddress: state.selectedAddress,
+            windowSeconds: state.windowSeconds,
+            showTemp: state.showTemp,
+            showHumidity: state.showHumidity,
+            temperatureUnit: state.temperatureUnit,
+          }),
+        );
+      } catch (_) {
+      }
+    }
+
+    function applySettingsToControls() {
+      dom.windowSeconds.value = String(state.windowSeconds);
+      dom.windowSlider.value = String(secondsToSlider(state.windowSeconds));
+      dom.showTemp.checked = state.showTemp;
+      dom.showHumidity.checked = state.showHumidity;
+      dom.tempUnitF.checked = state.temperatureUnit === "F";
+      dom.tempUnitC.checked = state.temperatureUnit !== "F";
     }
 
     function getAliasForAddress(address) {
@@ -672,7 +738,7 @@
 
     function updateTimeBox() {
       const now = new Date();
-      dom.currentTimeValue.textContent = now.toLocaleTimeString([], {
+      dom.currentTimeDisplay.textContent = now.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -1000,6 +1066,7 @@
     }
 
     function renderDeviceSelect(defaultAddress = null) {
+      const selectedBeforeRender = state.selectedAddress;
       dom.deviceSelect.innerHTML = "";
       if (!state.devices.length) {
         const opt = document.createElement("option");
@@ -1009,6 +1076,7 @@
         state.selectedAddress = null;
         syncAliasEditor();
         updateChartTitle();
+        persistDashboardSettings();
         return;
       }
 
@@ -1026,6 +1094,9 @@
       dom.deviceSelect.value = state.selectedAddress;
       syncAliasEditor();
       updateChartTitle();
+      if (selectedBeforeRender !== state.selectedAddress) {
+        persistDashboardSettings();
+      }
     }
 
     async function loadHistory() {
@@ -1095,6 +1166,7 @@
 
       dom.deviceSelect.addEventListener("change", async () => {
         state.selectedAddress = dom.deviceSelect.value || null;
+        persistDashboardSettings();
         syncAliasEditor(true);
         updateChartTitle();
         await loadHistory();
@@ -1104,6 +1176,7 @@
         const sec = sliderToSeconds(dom.windowSlider.value);
         state.windowSeconds = sec;
         dom.windowSeconds.value = String(sec);
+        persistDashboardSettings();
         await loadHistory();
       });
 
@@ -1112,21 +1185,25 @@
         state.windowSeconds = sec;
         dom.windowSeconds.value = String(sec);
         dom.windowSlider.value = String(secondsToSlider(sec));
+        persistDashboardSettings();
         await loadHistory();
       });
 
       dom.showTemp.addEventListener("change", () => {
         state.showTemp = dom.showTemp.checked;
+        persistDashboardSettings();
         drawChart();
       });
 
       dom.showHumidity.addEventListener("change", () => {
         state.showHumidity = dom.showHumidity.checked;
+        persistDashboardSettings();
         drawChart();
       });
 
       const applySelectedUnit = () => {
         state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
+        persistDashboardSettings();
         updateCurrentLegend();
         updateStatusText();
         drawChart();
@@ -1180,11 +1257,8 @@
     }
 
     async function init() {
-      state.windowSeconds = Number(dom.windowSeconds.value);
-      dom.windowSlider.value = String(secondsToSlider(state.windowSeconds));
-      state.showTemp = dom.showTemp.checked;
-      state.showHumidity = dom.showHumidity.checked;
-      state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
+      loadDashboardSettings();
+      applySettingsToControls();
 
       loadSensorAliases();
       updateCurrentLegend();
