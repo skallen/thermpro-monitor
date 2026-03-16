@@ -44,7 +44,7 @@ class Config:
         db_path = Path(os.getenv("THERMPRO_DB_PATH", "/var/lib/thermpro-monitor/readings.db"))
         allowed_macs = frozenset(mac.lower() for mac in _csv_env("THERMPRO_ALLOWED_MACS"))
         name_prefixes = _csv_env("THERMPRO_NAME_PREFIXES", default=("TP3",))
-        min_save_seconds = float(os.getenv("THERMPRO_MIN_SAVE_SECONDS", "30"))
+        min_save_seconds = float(os.getenv("THERMPRO_MIN_SAVE_SECONDS", "10"))
         log_level = os.getenv("THERMPRO_LOG_LEVEL", "INFO").upper()
         return Config(
             db_path=db_path,

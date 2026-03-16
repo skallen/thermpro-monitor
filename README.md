@@ -8,6 +8,7 @@ This project includes:
   - title `ThermPro Monitor`
   - temperature/humidity toggles (either or both)
   - timescale control from 10 seconds to 48 hours
+  - live refresh every 10 seconds
   - battery status in the graph's upper-right corner
 
 ## 1. Install system packages
@@ -56,7 +57,7 @@ Optional env settings:
 
 - `THERMPRO_ALLOWED_MACS`: comma-separated MAC list. Leave empty to accept all matching names.
 - `THERMPRO_NAME_PREFIXES`: default `TP3` for common ThermoPro hygrometers.
-- `THERMPRO_MIN_SAVE_SECONDS`: min seconds between writes per device.
+- `THERMPRO_MIN_SAVE_SECONDS`: min seconds between writes per device (default `10`).
 - `THERMPRO_WEB_PORT`: dashboard port (default `8080`).
 
 ## 4. Enable services
@@ -94,9 +95,10 @@ http://<pi-ip-address>:8080
 
 ```bash
 mkdir -p ~/.local/share/applications
+chmod +x /opt/thermpro-monitor/open-thermpro-monitor.sh
 cp /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/.local/share/applications/
 cp /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/Desktop/
 chmod +x ~/Desktop/thermpro-monitor.desktop
 ```
 
-You can then click `ThermPro Monitor` from the desktop/main page.
+You can then click `ThermPro Monitor` from the desktop/main page, and it will open full-screen kiosk mode.
