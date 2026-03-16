@@ -462,6 +462,8 @@
       drawHeight: 0,
       menuOpen: false,
       sensorAliases: {},
+      aliasInputAddress: null,
+      aliasInputDirty: false,
     };
 
     const dom = {
@@ -523,12 +525,26 @@
       return state.devices.find((device) => device.address === state.selectedAddress) || null;
     }
 
-    function syncAliasEditor() {
-      if (!state.selectedAddress) {
+    function syncAliasEditor(force = false) {
+      const currentAddress = normalizeAddress(state.selectedAddress);
+      if (!currentAddress) {
         dom.sensorAliasInput.value = "";
+        state.aliasInputAddress = null;
+        state.aliasInputDirty = false;
         return;
       }
-      dom.sensorAliasInput.value = getAliasForAddress(state.selectedAddress);
+
+      if (
+        !force &&
+        state.aliasInputDirty &&
+        state.aliasInputAddress === currentAddress
+      ) {
+        return;
+      }
+
+      dom.sensorAliasInput.value = getAliasForAddress(currentAddress);
+      state.aliasInputAddress = currentAddress;
+      state.aliasInputDirty = false;
     }
 
     function updateChartTitle() {
@@ -984,7 +1000,7 @@
 
       dom.deviceSelect.addEventListener("change", async () => {
         state.selectedAddress = dom.deviceSelect.value || null;
-        syncAliasEditor();
+        syncAliasEditor(true);
         updateChartTitle();
         await loadHistory();
       });
@@ -1034,17 +1050,27 @@
           delete state.sensorAliases[key];
         }
         persistSensorAliases();
+        state.aliasInputAddress = key;
+        state.aliasInputDirty = false;
         renderDeviceSelect();
         updateStatusText();
       });
 
       dom.clearAliasButton.addEventListener("click", () => {
         if (!state.selectedAddress) return;
-        delete state.sensorAliases[normalizeAddress(state.selectedAddress)];
+        const key = normalizeAddress(state.selectedAddress);
+        delete state.sensorAliases[key];
         dom.sensorAliasInput.value = "";
+        state.aliasInputAddress = key;
+        state.aliasInputDirty = false;
         persistSensorAliases();
         renderDeviceSelect();
         updateStatusText();
+      });
+
+      dom.sensorAliasInput.addEventListener("input", () => {
+        state.aliasInputAddress = normalizeAddress(state.selectedAddress);
+        state.aliasInputDirty = true;
       });
 
       dom.sensorAliasInput.addEventListener("keydown", (event) => {
