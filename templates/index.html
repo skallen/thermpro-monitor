@@ -124,6 +124,34 @@
       pointer-events: none;
     }
 
+    .time-box {
+      position: absolute;
+      right: 0.78rem;
+      bottom: 0.56rem;
+      z-index: 3;
+      display: grid;
+      gap: 0.12rem;
+      font-size: 0.84rem;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.24rem 0.52rem;
+      pointer-events: none;
+    }
+
+    .time-row {
+      display: flex;
+      gap: 0.35rem;
+      align-items: baseline;
+      white-space: nowrap;
+    }
+
+    .time-label {
+      font-weight: 600;
+      color: #456176;
+    }
+
     .swatch {
       width: 13px;
       height: 13px;
@@ -365,6 +393,11 @@
         justify-content: center;
       }
 
+      .time-box {
+        right: 0.7rem;
+        bottom: 3.05rem;
+      }
+
       #chartTitle {
         font-size: 1.15rem;
       }
@@ -385,6 +418,10 @@
         <span>CURRENT -</span>
         <span><span class="swatch temp"></span>Temperature: <span id="currentTempValue">--</span></span>
         <span><span class="swatch hum"></span>Humidity: <span id="currentHumidityValue">--</span></span>
+      </div>
+      <div class="time-box">
+        <div class="time-row"><span class="time-label">Now:</span><span id="currentTimeValue">--</span></div>
+        <div class="time-row"><span class="time-label">Last update:</span><span id="lastUpdateValue">--</span></div>
       </div>
       <canvas id="chart"></canvas>
     </section>
@@ -487,6 +524,8 @@
       chartTitle: document.getElementById("chartTitle"),
       currentTempValue: document.getElementById("currentTempValue"),
       currentHumidityValue: document.getElementById("currentHumidityValue"),
+      currentTimeValue: document.getElementById("currentTimeValue"),
+      lastUpdateValue: document.getElementById("lastUpdateValue"),
     };
 
     function normalizeAddress(address) {
@@ -590,7 +629,7 @@
     }
 
     function tempUnitSuffix() {
-      return state.temperatureUnit === "F" ? "deg F" : "deg C";
+      return state.temperatureUnit === "F" ? "F" : "C";
     }
 
     function formatTemperature(celsiusValue) {
@@ -629,6 +668,31 @@
 
       dom.currentTempValue.textContent = tempText;
       dom.currentHumidityValue.textContent = humText;
+    }
+
+    function updateTimeBox() {
+      const now = new Date();
+      dom.currentTimeValue.textContent = now.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+
+      if (!state.latest || !state.latest.latestRecordedAt) {
+        dom.lastUpdateValue.textContent = "--";
+        return;
+      }
+
+      const dt = new Date(state.latest.latestRecordedAt);
+      if (Number.isNaN(dt.getTime())) {
+        dom.lastUpdateValue.textContent = state.latest.latestRecordedAt;
+        return;
+      }
+      dom.lastUpdateValue.textContent = dt.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
     }
 
     function drawMessage(message) {
@@ -674,11 +738,18 @@
 
     function drawAxisLabels(ctx, leftAxis, rightAxis, bounds, plotHeight) {
       const ticks = 5;
-      ctx.fillStyle = "#516272";
-      ctx.font = `${Math.max(11, Math.round(bounds.scale * 11))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+      const tickFont = `${Math.max(11, Math.round(bounds.scale * 11))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+      const headingFont = `700 ${Math.max(12, Math.round(bounds.scale * 12))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+      ctx.font = tickFont;
       ctx.textBaseline = "middle";
 
       if (leftAxis) {
+        ctx.fillStyle = leftAxis.color;
+        ctx.font = headingFont;
+        ctx.textAlign = "right";
+        ctx.fillText(leftAxis.heading, bounds.left - 10, bounds.top - Math.max(16, Math.round(bounds.scale * 16)));
+
+        ctx.font = tickFont;
         ctx.textAlign = "right";
         for (let i = 0; i <= ticks; i += 1) {
           const ratio = i / ticks;
@@ -689,6 +760,12 @@
       }
 
       if (rightAxis) {
+        ctx.fillStyle = rightAxis.color;
+        ctx.font = headingFont;
+        ctx.textAlign = "left";
+        ctx.fillText(rightAxis.heading, bounds.right + 10, bounds.top - Math.max(16, Math.round(bounds.scale * 16)));
+
+        ctx.font = tickFont;
         ctx.textAlign = "left";
         for (let i = 0; i <= ticks; i += 1) {
           const ratio = i / ticks;
@@ -821,15 +898,30 @@
           .map((p) => convertTempFromC(Number(p.temperature_c)))
           .filter(Number.isFinite);
         tempRange = createRange(convertedTemps, convertTempFromC(0), convertTempFromC(40));
-        leftAxis = {range: tempRange, decimals: 1};
+        leftAxis = {
+          range: tempRange,
+          decimals: 1,
+          color: lineColorTemp(),
+          heading: "TEMP",
+        };
       }
 
       if (state.showHumidity) {
         humidityRange = {min: 0, max: 100};
         if (state.showTemp) {
-          rightAxis = {range: humidityRange, decimals: 0};
+          rightAxis = {
+            range: humidityRange,
+            decimals: 0,
+            color: lineColorHumidity(),
+            heading: "RH",
+          };
         } else {
-          leftAxis = {range: humidityRange, decimals: 0};
+          leftAxis = {
+            range: humidityRange,
+            decimals: 0,
+            color: lineColorHumidity(),
+            heading: "RH",
+          };
         }
       }
 
@@ -943,6 +1035,7 @@
         state.batteryPct = null;
         refreshBatteryBadge();
         updateCurrentLegend();
+        updateTimeBox();
         updateStatusText();
         drawChart();
         return;
@@ -969,6 +1062,7 @@
       state.batteryPct = payload.battery_pct;
       refreshBatteryBadge();
       updateCurrentLegend();
+      updateTimeBox();
       updateStatusText();
       updateChartTitle();
       drawChart();
@@ -982,6 +1076,7 @@
         console.error(err);
         state.latest = null;
         updateCurrentLegend();
+        updateTimeBox();
         dom.statusText.textContent = String(err.message || err);
         drawMessage("Unable to load data.");
       }
@@ -1093,9 +1188,11 @@
 
       loadSensorAliases();
       updateCurrentLegend();
+      updateTimeBox();
       bindEvents();
       await refreshAll();
       window.setInterval(refreshAll, REFRESH_MS);
+      window.setInterval(updateTimeBox, 1000);
     }
 
     init();
