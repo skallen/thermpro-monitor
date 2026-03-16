@@ -307,6 +307,25 @@
       white-space: normal;
     }
 
+    .unit-switch {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .unit-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.38rem;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.24rem 0.64rem;
+      background: #fff;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+
     @media (max-width: 720px) {
       .shell {
         padding: 0.45rem;
@@ -380,11 +399,11 @@
         </div>
 
         <div class="control">
-          <label for="tempUnit">Temperature unit</label>
-          <select id="tempUnit">
-            <option value="C" selected>Celsius</option>
-            <option value="F">Fahrenheit</option>
-          </select>
+          <label>Temperature unit</label>
+          <div class="unit-switch" role="radiogroup" aria-label="Temperature unit">
+            <label class="unit-chip"><input id="tempUnitC" type="radio" name="tempUnit" value="C" checked> Celsius</label>
+            <label class="unit-chip"><input id="tempUnitF" type="radio" name="tempUnit" value="F"> Fahrenheit</label>
+          </div>
         </div>
       </section>
 
@@ -423,7 +442,8 @@
       windowSeconds: document.getElementById("windowSeconds"),
       showTemp: document.getElementById("showTemp"),
       showHumidity: document.getElementById("showHumidity"),
-      tempUnit: document.getElementById("tempUnit"),
+      tempUnitC: document.getElementById("tempUnitC"),
+      tempUnitF: document.getElementById("tempUnitF"),
       statusText: document.getElementById("statusText"),
       batteryBadge: document.getElementById("batteryBadge"),
       tempLegend: document.getElementById("tempLegend"),
@@ -875,12 +895,15 @@
         drawChart();
       });
 
-      dom.tempUnit.addEventListener("change", () => {
-        state.temperatureUnit = dom.tempUnit.value === "F" ? "F" : "C";
+      const applySelectedUnit = () => {
+        state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
         updateLegend();
         updateStatusText();
         drawChart();
-      });
+      };
+
+      dom.tempUnitC.addEventListener("change", applySelectedUnit);
+      dom.tempUnitF.addEventListener("change", applySelectedUnit);
 
       window.addEventListener("resize", () => {
         drawChart();
@@ -892,7 +915,7 @@
       dom.windowSlider.value = String(secondsToSlider(state.windowSeconds));
       state.showTemp = dom.showTemp.checked;
       state.showHumidity = dom.showHumidity.checked;
-      state.temperatureUnit = dom.tempUnit.value === "F" ? "F" : "C";
+      state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
 
       updateLegend();
       bindEvents();
