@@ -84,6 +84,9 @@
       letter-spacing: 0.05em;
       color: #1b364a;
       white-space: nowrap;
+      max-width: 62vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
       pointer-events: none;
     }
 
@@ -304,7 +307,7 @@
       border-radius: 10px;
       padding: 0.58rem 0.64rem;
       background: #ffffff;
-      white-space: normal;
+      white-space: pre-line;
     }
 
     .unit-switch {
@@ -322,6 +325,24 @@
       border-radius: 999px;
       padding: 0.24rem 0.64rem;
       background: #fff;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+
+    .alias-actions {
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .alias-button {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 0.35rem 0.72rem;
+      background: #fff;
+      color: #1e3a4f;
+      font: inherit;
       font-size: 0.88rem;
       cursor: pointer;
     }
@@ -361,8 +382,9 @@
       <div id="chartTitle">ThermPro Monitor</div>
       <div id="batteryBadge">Battery: --</div>
       <div class="legend">
-        <span id="tempLegend"><span class="swatch temp"></span>Temperature (deg C)</span>
-        <span><span class="swatch hum"></span>Humidity (%)</span>
+        <span>CURRENT -</span>
+        <span><span class="swatch temp"></span>Temperature: <span id="currentTempValue">--</span></span>
+        <span><span class="swatch hum"></span>Humidity: <span id="currentHumidityValue">--</span></span>
       </div>
       <canvas id="chart"></canvas>
     </section>
@@ -405,6 +427,15 @@
             <label class="unit-chip"><input id="tempUnitF" type="radio" name="tempUnit" value="F"> Fahrenheit</label>
           </div>
         </div>
+
+        <div class="control">
+          <label for="sensorAliasInput">Sensor chart name</label>
+          <input id="sensorAliasInput" type="text" maxlength="40" placeholder="Enter custom name">
+          <div class="alias-actions">
+            <button id="saveAliasButton" class="alias-button" type="button">Save Name</button>
+            <button id="clearAliasButton" class="alias-button" type="button">Clear</button>
+          </div>
+        </div>
       </section>
 
       <div class="status" id="statusText"></div>
@@ -415,6 +446,7 @@
     const MIN_SECONDS = 10;
     const MAX_SECONDS = 172800;
     const REFRESH_MS = 10000;
+    const ALIAS_STORAGE_KEY = "thermpro_sensor_aliases_v1";
 
     const state = {
       devices: [],
@@ -429,6 +461,7 @@
       drawWidth: 0,
       drawHeight: 0,
       menuOpen: false,
+      sensorAliases: {},
     };
 
     const dom = {
@@ -444,10 +477,68 @@
       showHumidity: document.getElementById("showHumidity"),
       tempUnitC: document.getElementById("tempUnitC"),
       tempUnitF: document.getElementById("tempUnitF"),
+      sensorAliasInput: document.getElementById("sensorAliasInput"),
+      saveAliasButton: document.getElementById("saveAliasButton"),
+      clearAliasButton: document.getElementById("clearAliasButton"),
       statusText: document.getElementById("statusText"),
       batteryBadge: document.getElementById("batteryBadge"),
-      tempLegend: document.getElementById("tempLegend"),
+      chartTitle: document.getElementById("chartTitle"),
+      currentTempValue: document.getElementById("currentTempValue"),
+      currentHumidityValue: document.getElementById("currentHumidityValue"),
     };
+
+    function normalizeAddress(address) {
+      return String(address || "").trim().toLowerCase();
+    }
+
+    function loadSensorAliases() {
+      try {
+        const raw = localStorage.getItem(ALIAS_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          state.sensorAliases = parsed;
+        }
+      } catch (_) {
+        state.sensorAliases = {};
+      }
+    }
+
+    function persistSensorAliases() {
+      try {
+        localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(state.sensorAliases));
+      } catch (_) {
+      }
+    }
+
+    function getAliasForAddress(address) {
+      return state.sensorAliases[normalizeAddress(address)] || "";
+    }
+
+    function getDisplayName(deviceName, address) {
+      return getAliasForAddress(address) || deviceName || "Unknown sensor";
+    }
+
+    function getSelectedDevice() {
+      return state.devices.find((device) => device.address === state.selectedAddress) || null;
+    }
+
+    function syncAliasEditor() {
+      if (!state.selectedAddress) {
+        dom.sensorAliasInput.value = "";
+        return;
+      }
+      dom.sensorAliasInput.value = getAliasForAddress(state.selectedAddress);
+    }
+
+    function updateChartTitle() {
+      const selected = getSelectedDevice();
+      if (!selected) {
+        dom.chartTitle.textContent = "ThermPro Monitor";
+        return;
+      }
+      dom.chartTitle.textContent = getDisplayName(selected.name, selected.address);
+    }
 
     function setMenuOpen(open) {
       state.menuOpen = open;
@@ -506,8 +597,22 @@
       return getComputedStyle(document.documentElement).getPropertyValue("--humid").trim() || "#007e89";
     }
 
-    function updateLegend() {
-      dom.tempLegend.innerHTML = `<span class="swatch temp"></span>Temperature (${tempUnitSuffix()})`;
+    function updateCurrentLegend() {
+      if (!state.latest) {
+        dom.currentTempValue.textContent = "--";
+        dom.currentHumidityValue.textContent = "--";
+        return;
+      }
+
+      const tempRaw = Number(state.latest.latestTemp);
+      const humRaw = Number(state.latest.latestHumidity);
+      const tempText = Number.isFinite(tempRaw)
+        ? `${convertTempFromC(tempRaw).toFixed(1)} ${tempUnitSuffix()}`
+        : "--";
+      const humText = Number.isFinite(humRaw) ? `${Math.round(humRaw)}%` : "--";
+
+      dom.currentTempValue.textContent = tempText;
+      dom.currentHumidityValue.textContent = humText;
     }
 
     function drawMessage(message) {
@@ -764,7 +869,7 @@
       const latestTs = state.latest.latestRecordedAt
         ? formatTimestamp(state.latest.latestRecordedAt)
         : "No data yet";
-      const deviceName = state.latest.name || "Unknown sensor";
+      const deviceName = getDisplayName(state.latest.name, state.selectedAddress);
       const tempText = formatTemperature(Number(state.latest.latestTemp));
       const humValue = Number(state.latest.latestHumidity);
       const humText = Number.isFinite(humValue) ? `${Math.round(humValue)}%` : "--";
@@ -783,6 +888,10 @@
       const payload = await response.json();
       state.devices = payload.devices || [];
 
+      renderDeviceSelect(payload.default_address || null);
+    }
+
+    function renderDeviceSelect(defaultAddress = null) {
       dom.deviceSelect.innerHTML = "";
       if (!state.devices.length) {
         const opt = document.createElement("option");
@@ -790,21 +899,25 @@
         opt.textContent = "No ThermoPro sensors found";
         dom.deviceSelect.appendChild(opt);
         state.selectedAddress = null;
+        syncAliasEditor();
+        updateChartTitle();
         return;
+      }
+
+      const selectedStillPresent = state.devices.some((d) => d.address === state.selectedAddress);
+      if (!selectedStillPresent) {
+        state.selectedAddress = defaultAddress || state.devices[0].address;
       }
 
       for (const device of state.devices) {
         const option = document.createElement("option");
         option.value = device.address;
-        option.textContent = `${device.name} (${device.address})`;
+        option.textContent = `${getDisplayName(device.name, device.address)} (${device.address})`;
         dom.deviceSelect.appendChild(option);
       }
-
-      const selectedStillPresent = state.devices.some((d) => d.address === state.selectedAddress);
-      if (!selectedStillPresent) {
-        state.selectedAddress = payload.default_address || state.devices[0].address;
-      }
       dom.deviceSelect.value = state.selectedAddress;
+      syncAliasEditor();
+      updateChartTitle();
     }
 
     async function loadHistory() {
@@ -813,6 +926,7 @@
         state.latest = null;
         state.batteryPct = null;
         refreshBatteryBadge();
+        updateCurrentLegend();
         updateStatusText();
         drawChart();
         return;
@@ -838,7 +952,9 @@
       };
       state.batteryPct = payload.battery_pct;
       refreshBatteryBadge();
+      updateCurrentLegend();
       updateStatusText();
+      updateChartTitle();
       drawChart();
     }
 
@@ -849,6 +965,7 @@
       } catch (err) {
         console.error(err);
         state.latest = null;
+        updateCurrentLegend();
         dom.statusText.textContent = String(err.message || err);
         drawMessage("Unable to load data.");
       }
@@ -867,6 +984,8 @@
 
       dom.deviceSelect.addEventListener("change", async () => {
         state.selectedAddress = dom.deviceSelect.value || null;
+        syncAliasEditor();
+        updateChartTitle();
         await loadHistory();
       });
 
@@ -897,13 +1016,42 @@
 
       const applySelectedUnit = () => {
         state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
-        updateLegend();
+        updateCurrentLegend();
         updateStatusText();
         drawChart();
       };
 
       dom.tempUnitC.addEventListener("change", applySelectedUnit);
       dom.tempUnitF.addEventListener("change", applySelectedUnit);
+
+      dom.saveAliasButton.addEventListener("click", () => {
+        if (!state.selectedAddress) return;
+        const key = normalizeAddress(state.selectedAddress);
+        const alias = dom.sensorAliasInput.value.trim();
+        if (alias) {
+          state.sensorAliases[key] = alias;
+        } else {
+          delete state.sensorAliases[key];
+        }
+        persistSensorAliases();
+        renderDeviceSelect();
+        updateStatusText();
+      });
+
+      dom.clearAliasButton.addEventListener("click", () => {
+        if (!state.selectedAddress) return;
+        delete state.sensorAliases[normalizeAddress(state.selectedAddress)];
+        dom.sensorAliasInput.value = "";
+        persistSensorAliases();
+        renderDeviceSelect();
+        updateStatusText();
+      });
+
+      dom.sensorAliasInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        dom.saveAliasButton.click();
+      });
 
       window.addEventListener("resize", () => {
         drawChart();
@@ -917,7 +1065,8 @@
       state.showHumidity = dom.showHumidity.checked;
       state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
 
-      updateLegend();
+      loadSensorAliases();
+      updateCurrentLegend();
       bindEvents();
       await refreshAll();
       window.setInterval(refreshAll, REFRESH_MS);
