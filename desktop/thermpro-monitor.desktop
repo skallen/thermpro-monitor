@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=ThermPro Monitor
+Comment=Open ThermPro Monitor dashboard
+Exec=xdg-open http://localhost:8080
+Icon=utilities-system-monitor
+Terminal=false
+Categories=Utility;Science;

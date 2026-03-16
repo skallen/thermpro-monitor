@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ThermPro Monitor</title>
+  <style>
+    :root {
+      --bg-start: #f2f6fb;
+      --bg-end: #d7e5ef;
+      --panel: #ffffff;
+      --ink: #1f2933;
+      --muted: #5f6c78;
+      --temp: #dc5f00;
+      --humid: #00838f;
+      --accent: #1f6aa2;
+      --grid: #d5dee8;
+      --border: #c5d2df;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", "Trebuchet MS", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(155deg, var(--bg-start), var(--bg-end));
+    }
+
+    .shell {
+      width: min(1080px, 96vw);
+      margin: 1.2rem auto;
+      padding: 1rem 1.2rem 1.2rem;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 22px 38px rgba(22, 46, 66, 0.14);
+      animation: rise-in 380ms ease-out both;
+    }
+
+    @keyframes rise-in {
+      from {
+        transform: translateY(14px);
+        opacity: 0;
+      }
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    .controls {
+      display: grid;
+      gap: 0.8rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      align-items: end;
+      margin-bottom: 0.8rem;
+    }
+
+    .control {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    label {
+      font-size: 0.92rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    select,
+    input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.55rem 0.6rem;
+      font: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .time-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .range-wrap {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .toggles {
+      display: flex;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+      align-items: center;
+      min-height: 2.5rem;
+    }
+
+    .toggle {
+      display: inline-flex;
+      gap: 0.4rem;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.25rem 0.65rem;
+      background: #fff;
+      font-size: 0.9rem;
+    }
+
+    .status {
+      margin-top: 0.2rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+      min-height: 1.2rem;
+    }
+
+    .chart-panel {
+      position: relative;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, #fefefe, #f6fbff);
+      border-radius: 14px;
+      padding: 2.1rem 0.5rem 0.2rem;
+      min-height: 380px;
+      overflow: hidden;
+    }
+
+    #chartTitle {
+      position: absolute;
+      top: 0.58rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      text-align: center;
+      font-size: clamp(1.2rem, 2.2vw, 1.7rem);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #1a3347;
+      white-space: nowrap;
+    }
+
+    #batteryBadge {
+      position: absolute;
+      top: 0.8rem;
+      right: 0.8rem;
+      z-index: 2;
+      font-size: 0.84rem;
+      color: #11324b;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.2rem 0.65rem;
+      font-weight: 600;
+      backdrop-filter: blur(1px);
+    }
+
+    .legend {
+      display: flex;
+      gap: 0.9rem;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 0.25rem 0.25rem 0.55rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .swatch {
+      width: 13px;
+      height: 13px;
+      border-radius: 3px;
+      display: inline-block;
+      margin-right: 0.32rem;
+      vertical-align: -2px;
+    }
+
+    .swatch.temp {
+      background: var(--temp);
+    }
+
+    .swatch.hum {
+      background: var(--humid);
+    }
+
+    #chart {
+      width: 100%;
+      height: 330px;
+      display: block;
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        margin: 0.7rem auto;
+        padding: 0.8rem;
+      }
+
+      .chart-panel {
+        min-height: 320px;
+      }
+
+      #chart {
+        height: 280px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="controls">
+      <div class="control">
+        <label for="deviceSelect">Sensor</label>
+        <select id="deviceSelect"></select>
+      </div>
+
+      <div class="control">
+        <label for="windowSeconds">Timescale</label>
+        <div class="time-grid">
+          <div class="range-wrap">
+            <input id="windowSlider" type="range" min="0" max="1000" step="1" value="600">
+          </div>
+          <input id="windowSeconds" type="number" min="10" max="172800" step="1" value="3600">
+        </div>
+      </div>
+
+      <div class="control">
+        <label>Display</label>
+        <div class="toggles">
+          <label class="toggle"><input id="showTemp" type="checkbox" checked> Temperature</label>
+          <label class="toggle"><input id="showHumidity" type="checkbox" checked> Humidity</label>
+        </div>
+      </div>
+    </section>
+
+    <div class="status" id="statusText"></div>
+
+    <section class="chart-panel">
+      <div id="chartTitle">ThermPro Monitor</div>
+      <div id="batteryBadge">Battery: --</div>
+      <div class="legend">
+        <span><span class="swatch temp"></span>Temperature (deg C)</span>
+        <span><span class="swatch hum"></span>Humidity (%)</span>
+      </div>
+      <canvas id="chart"></canvas>
+    </section>
+  </main>
+
+  <script>
+    const MIN_SECONDS = 10;
+    const MAX_SECONDS = 172800;
+    const REFRESH_MS = 5000;
+    const state = {
+      devices: [],
+      selectedAddress: null,
+      windowSeconds: 3600,
+      showTemp: true,
+      showHumidity: true,
+      points: [],
+      latest: null,
+      batteryPct: null,
+      drawWidth: 0,
+      drawHeight: 0,
+    };
+
+    const dom = {
+      deviceSelect: document.getElementById("deviceSelect"),
+      windowSlider: document.getElementById("windowSlider"),
+      windowSeconds: document.getElementById("windowSeconds"),
+      showTemp: document.getElementById("showTemp"),
+      showHumidity: document.getElementById("showHumidity"),
+      statusText: document.getElementById("statusText"),
+      batteryBadge: document.getElementById("batteryBadge"),
+      chart: document.getElementById("chart"),
+    };
+
+    function formatWindow(seconds) {
+      if (seconds < 120) return `${seconds}s`;
+      if (seconds < 7200) return `${Math.round(seconds / 60)}m`;
+      if (seconds < 172800) return `${(seconds / 3600).toFixed(1)}h`;
+      return "48h";
+    }
+
+    function sliderToSeconds(sliderValue) {
+      const ratio = Number(sliderValue) / 1000;
+      return Math.round(MIN_SECONDS * Math.pow(MAX_SECONDS / MIN_SECONDS, ratio));
+    }
+
+    function secondsToSlider(seconds) {
+      const bounded = Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, Number(seconds) || MIN_SECONDS));
+      const ratio = Math.log(bounded / MIN_SECONDS) / Math.log(MAX_SECONDS / MIN_SECONDS);
+      return Math.round(ratio * 1000);
+    }
+
+    function formatTimestamp(isoValue) {
+      const dt = new Date(isoValue);
+      if (Number.isNaN(dt.getTime())) return isoValue;
+      return dt.toLocaleString();
+    }
+
+    function lineColorTemp() {
+      return getComputedStyle(document.documentElement).getPropertyValue("--temp").trim() || "#dc5f00";
+    }
+
+    function lineColorHumidity() {
+      return getComputedStyle(document.documentElement).getPropertyValue("--humid").trim() || "#00838f";
+    }
+
+    function drawMessage(message) {
+      const canvas = dom.chart;
+      const ctx = canvas.getContext("2d");
+      resizeCanvasForDisplay();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#607080";
+      ctx.font = "600 16px 'Avenir Next', 'Segoe UI', sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+    }
+
+    function resizeCanvasForDisplay() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = dom.chart.getBoundingClientRect();
+      const width = Math.max(200, Math.floor(rect.width * dpr));
+      const height = Math.max(180, Math.floor(rect.height * dpr));
+      if (state.drawWidth !== width || state.drawHeight !== height) {
+        state.drawWidth = width;
+        state.drawHeight = height;
+        dom.chart.width = width;
+        dom.chart.height = height;
+      }
+      return dpr;
+    }
+
+    function createRange(values, fallbackMin, fallbackMax) {
+      if (!values.length) return {min: fallbackMin, max: fallbackMax};
+      let min = Math.min(...values);
+      let max = Math.max(...values);
+      if (min === max) {
+        min -= 1;
+        max += 1;
+      } else {
+        const pad = (max - min) * 0.08;
+        min -= pad;
+        max += pad;
+      }
+      return {min, max};
+    }
+
+    function drawAxisLabels(ctx, leftRange, rightRange, bounds, plotHeight) {
+      const ticks = 5;
+      ctx.fillStyle = "#516272";
+      ctx.font = `${Math.max(11, Math.round(bounds.scale * 11))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+      ctx.textBaseline = "middle";
+
+      if (leftRange) {
+        ctx.textAlign = "right";
+        for (let i = 0; i <= ticks; i += 1) {
+          const ratio = i / ticks;
+          const value = leftRange.max - ratio * (leftRange.max - leftRange.min);
+          const y = bounds.top + ratio * plotHeight;
+          ctx.fillText(value.toFixed(1), bounds.left - 10, y);
+        }
+      }
+
+      if (rightRange) {
+        ctx.textAlign = "left";
+        for (let i = 0; i <= ticks; i += 1) {
+          const ratio = i / ticks;
+          const value = rightRange.max - ratio * (rightRange.max - rightRange.min);
+          const y = bounds.top + ratio * plotHeight;
+          ctx.fillText(value.toFixed(0), bounds.right + 10, y);
+        }
+      }
+    }
+
+    function drawGrid(ctx, bounds, plotWidth, plotHeight) {
+      const gridColor = getComputedStyle(document.documentElement).getPropertyValue("--grid").trim() || "#d5dee8";
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = Math.max(1, Math.round(bounds.scale));
+
+      const hLines = 5;
+      for (let i = 0; i <= hLines; i += 1) {
+        const y = bounds.top + (i / hLines) * plotHeight;
+        ctx.beginPath();
+        ctx.moveTo(bounds.left, y);
+        ctx.lineTo(bounds.right, y);
+        ctx.stroke();
+      }
+
+      const vLines = 6;
+      for (let i = 0; i <= vLines; i += 1) {
+        const x = bounds.left + (i / vLines) * plotWidth;
+        ctx.beginPath();
+        ctx.moveTo(x, bounds.top);
+        ctx.lineTo(x, bounds.bottom);
+        ctx.stroke();
+      }
+    }
+
+    function drawTimeLabels(ctx, points, bounds, plotWidth) {
+      if (points.length < 2) return;
+      const first = new Date(points[0].recorded_at).getTime();
+      const last = new Date(points[points.length - 1].recorded_at).getTime();
+      if (!Number.isFinite(first) || !Number.isFinite(last) || first === last) return;
+
+      const ticks = 6;
+      ctx.fillStyle = "#516272";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.font = `${Math.max(11, Math.round(bounds.scale * 11))}px 'Avenir Next', 'Segoe UI', sans-serif`;
+
+      for (let i = 0; i <= ticks; i += 1) {
+        const ratio = i / ticks;
+        const ts = first + ratio * (last - first);
+        const x = bounds.left + ratio * plotWidth;
+        const label = new Date(ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+        ctx.fillText(label, x, bounds.bottom + Math.max(8, Math.round(bounds.scale * 8)));
+      }
+    }
+
+    function drawLine(ctx, points, bounds, range, accessor, color, timeMin, timeMax, plotHeight, plotWidth) {
+      if (points.length < 2) return;
+      const span = timeMax - timeMin || 1;
+      const ySpan = range.max - range.min || 1;
+      let started = false;
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(2, Math.round(bounds.scale * 2));
+      ctx.beginPath();
+
+      for (let i = 0; i < points.length; i += 1) {
+        const ts = new Date(points[i].recorded_at).getTime();
+        const value = accessor(points[i]);
+        if (!Number.isFinite(ts) || !Number.isFinite(value)) continue;
+        const x = bounds.left + ((ts - timeMin) / span) * plotWidth;
+        const y = bounds.top + ((range.max - value) / ySpan) * plotHeight;
+        if (!started) {
+          ctx.moveTo(x, y);
+          started = true;
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      if (started) ctx.stroke();
+    }
+
+    function drawChart() {
+      if (!state.showTemp && !state.showHumidity) {
+        drawMessage("Enable temperature and/or humidity to draw the graph.");
+        return;
+      }
+      if (!state.points.length) {
+        drawMessage("No readings in the selected timescale.");
+        return;
+      }
+
+      const canvas = dom.chart;
+      const ctx = canvas.getContext("2d");
+      const dpr = resizeCanvasForDisplay();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const padBase = Math.round(52 * dpr);
+      const hasDualAxis = state.showTemp && state.showHumidity;
+      const leftPad = padBase;
+      const rightPad = hasDualAxis ? Math.round(62 * dpr) : Math.round(22 * dpr);
+      const topPad = Math.round(18 * dpr);
+      const bottomPad = Math.round(42 * dpr);
+      const bounds = {
+        left: leftPad,
+        right: canvas.width - rightPad,
+        top: topPad,
+        bottom: canvas.height - bottomPad,
+        scale: dpr,
+      };
+      const plotWidth = bounds.right - bounds.left;
+      const plotHeight = bounds.bottom - bounds.top;
+
+      drawGrid(ctx, bounds, plotWidth, plotHeight);
+
+      const timestamps = state.points.map((p) => new Date(p.recorded_at).getTime()).filter(Number.isFinite);
+      const timeMin = Math.min(...timestamps);
+      const timeMax = Math.max(...timestamps);
+
+      let leftRange = null;
+      let rightRange = null;
+
+      if (state.showTemp) {
+        const tempValues = state.points.map((p) => Number(p.temperature_c)).filter(Number.isFinite);
+        leftRange = createRange(tempValues, 0, 40);
+      }
+
+      if (state.showHumidity) {
+        const humidityRange = {min: 0, max: 100};
+        if (state.showTemp) {
+          rightRange = humidityRange;
+        } else {
+          leftRange = humidityRange;
+        }
+      }
+
+      drawAxisLabels(ctx, leftRange, rightRange, bounds, plotHeight);
+      drawTimeLabels(ctx, state.points, bounds, plotWidth);
+
+      if (state.showTemp && leftRange) {
+        drawLine(
+          ctx,
+          state.points,
+          bounds,
+          leftRange,
+          (p) => Number(p.temperature_c),
+          lineColorTemp(),
+          timeMin,
+          timeMax,
+          plotHeight,
+          plotWidth,
+        );
+      }
+
+      if (state.showHumidity) {
+        const humidityRange = state.showTemp ? rightRange : leftRange;
+        if (humidityRange) {
+          drawLine(
+            ctx,
+            state.points,
+            bounds,
+            humidityRange,
+            (p) => Number(p.humidity_pct),
+            lineColorHumidity(),
+            timeMin,
+            timeMax,
+            plotHeight,
+            plotWidth,
+          );
+        }
+      }
+    }
+
+    function refreshBatteryBadge() {
+      if (state.batteryPct === null || state.batteryPct === undefined) {
+        dom.batteryBadge.textContent = "Battery: --";
+        return;
+      }
+      dom.batteryBadge.textContent = `Battery: ${state.batteryPct}%`;
+    }
+
+    async function loadDevices() {
+      const response = await fetch("/api/devices");
+      if (!response.ok) throw new Error("Failed to load devices");
+      const payload = await response.json();
+      state.devices = payload.devices || [];
+
+      dom.deviceSelect.innerHTML = "";
+      if (!state.devices.length) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No ThermoPro sensors found";
+        dom.deviceSelect.appendChild(opt);
+        state.selectedAddress = null;
+        return;
+      }
+
+      for (const device of state.devices) {
+        const option = document.createElement("option");
+        option.value = device.address;
+        option.textContent = `${device.name} (${device.address})`;
+        dom.deviceSelect.appendChild(option);
+      }
+
+      const selectedStillPresent = state.devices.some((d) => d.address === state.selectedAddress);
+      if (!selectedStillPresent) {
+        state.selectedAddress = payload.default_address || state.devices[0].address;
+      }
+      dom.deviceSelect.value = state.selectedAddress;
+    }
+
+    async function loadHistory() {
+      if (!state.selectedAddress) {
+        state.points = [];
+        state.latest = null;
+        state.batteryPct = null;
+        drawChart();
+        refreshBatteryBadge();
+        return;
+      }
+
+      const params = new URLSearchParams({
+        address: state.selectedAddress,
+        seconds: String(state.windowSeconds),
+      });
+      const response = await fetch(`/api/history?${params.toString()}`);
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(`History request failed: ${details}`);
+      }
+
+      const payload = await response.json();
+      state.points = payload.points || [];
+      state.latest = {
+        name: payload.name,
+        latestRecordedAt: payload.latest_recorded_at,
+        latestTemp: payload.latest_temperature_c,
+        latestHumidity: payload.latest_humidity_pct,
+      };
+      state.batteryPct = payload.battery_pct;
+      refreshBatteryBadge();
+      drawChart();
+
+      const latestTs = state.latest.latestRecordedAt
+        ? formatTimestamp(state.latest.latestRecordedAt)
+        : "No data yet";
+      const deviceName = state.latest.name || "Unknown sensor";
+      const tempText = Number.isFinite(Number(state.latest.latestTemp))
+        ? `${Number(state.latest.latestTemp).toFixed(1)} deg C`
+        : "--";
+      const humText = Number.isFinite(Number(state.latest.latestHumidity))
+        ? `${Math.round(Number(state.latest.latestHumidity))}%`
+        : "--";
+      dom.statusText.textContent = `${deviceName} | Latest ${latestTs} | Temp ${tempText} | Humidity ${humText} | Window ${formatWindow(state.windowSeconds)}`;
+    }
+
+    async function refreshAll() {
+      try {
+        await loadDevices();
+        await loadHistory();
+      } catch (err) {
+        console.error(err);
+        dom.statusText.textContent = String(err.message || err);
+        drawMessage("Unable to load data.");
+      }
+    }
+
+    function bindEvents() {
+      dom.deviceSelect.addEventListener("change", async () => {
+        state.selectedAddress = dom.deviceSelect.value || null;
+        await loadHistory();
+      });
+
+      dom.windowSlider.addEventListener("input", async () => {
+        const sec = sliderToSeconds(dom.windowSlider.value);
+        state.windowSeconds = sec;
+        dom.windowSeconds.value = String(sec);
+        await loadHistory();
+      });
+
+      dom.windowSeconds.addEventListener("change", async () => {
+        const sec = Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, Number(dom.windowSeconds.value) || MIN_SECONDS));
+        state.windowSeconds = sec;
+        dom.windowSeconds.value = String(sec);
+        dom.windowSlider.value = String(secondsToSlider(sec));
+        await loadHistory();
+      });
+
+      dom.showTemp.addEventListener("change", () => {
+        state.showTemp = dom.showTemp.checked;
+        drawChart();
+      });
+
+      dom.showHumidity.addEventListener("change", () => {
+        state.showHumidity = dom.showHumidity.checked;
+        drawChart();
+      });
+
+      window.addEventListener("resize", () => {
+        drawChart();
+      });
+    }
+
+    async function init() {
+      state.windowSeconds = Number(dom.windowSeconds.value);
+      dom.windowSlider.value = String(secondsToSlider(state.windowSeconds));
+      state.showTemp = dom.showTemp.checked;
+      state.showHumidity = dom.showHumidity.checked;
+      bindEvents();
+      await refreshAll();
+      window.setInterval(refreshAll, REFRESH_MS);
+    }
+
+    init();
+  </script>
+</body>
+</html>

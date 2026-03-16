@@ -5,11 +5,8 @@ Wants=bluetooth.target
 
 [Service]
 Type=simple
-User=pi
-Group=pi
-SupplementaryGroups=bluetooth
 WorkingDirectory=/opt/thermpro-monitor
-EnvironmentFile=/opt/thermpro-monitor/thermpro-monitor.env
+EnvironmentFile=-/opt/thermpro-monitor/thermpro-monitor.env
 ExecStart=/opt/thermpro-monitor/.venv/bin/python /opt/thermpro-monitor/thermpro_monitor.py
 Restart=always
 RestartSec=5

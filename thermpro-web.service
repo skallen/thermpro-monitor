@@ -1,0 +1,17 @@
+[Unit]
+Description=ThermPro Monitor Web Dashboard
+After=network-online.target thermpro-monitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/thermpro-monitor
+EnvironmentFile=-/opt/thermpro-monitor/thermpro-monitor.env
+Environment=THERMPRO_WEB_HOST=0.0.0.0
+Environment=THERMPRO_WEB_PORT=8080
+ExecStart=/opt/thermpro-monitor/.venv/bin/python /opt/thermpro-monitor/thermpro_web.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
