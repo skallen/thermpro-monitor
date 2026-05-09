@@ -1,8 +1,8 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=ThermPro Monitor
-Comment=Open ThermPro Monitor dashboard
+Name=Filament Humidity/Temp
+Comment=Open Filament Humidity/Temp dashboard in kiosk mode
 Exec=/opt/thermpro-monitor/open-thermpro-monitor.sh
 Icon=utilities-system-monitor
 Terminal=false

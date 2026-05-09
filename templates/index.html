@@ -64,10 +64,11 @@
     }
 
     .overview-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      gap: 0.8rem;
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      gap: 0.2rem;
+      text-align: center;
       padding: 0 0.15rem;
     }
 
@@ -87,8 +88,12 @@
 
     .overview-grid {
       overflow-y: auto;
+      width: 100%;
+      max-width: 1260px;
+      margin: 0 auto;
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 220px));
+      justify-content: center;
       gap: 0.7rem;
       padding: 0.1rem;
       align-content: start;
@@ -133,6 +138,19 @@
     .overview-card--alert {
       border-color: #a62534;
       box-shadow: 0 10px 20px rgba(119, 26, 40, 0.24);
+    }
+
+    .overview-card--disabled {
+      background: #e7edf2;
+      border-color: #97a7b4 !important;
+      color: #6c7a84;
+      box-shadow: 0 5px 10px rgba(40, 54, 67, 0.12);
+    }
+
+    .overview-card--disabled .overview-name,
+    .overview-card--disabled .overview-reading-label,
+    .overview-card--disabled .overview-reading-value {
+      color: #6c7a84;
     }
 
     .overview-name {
@@ -201,6 +219,16 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .overview-battery--warning {
+      color: #8a4600 !important;
+      font-weight: 700;
+    }
+
+    .overview-battery--critical {
+      color: #a4202b !important;
+      font-weight: 800;
     }
 
     .overview-empty {
@@ -690,7 +718,7 @@
       }
 
       .overview-grid {
-        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(170px, 190px));
       }
 
       .overview-card {
@@ -707,7 +735,7 @@
   <main class="shell">
     <section id="overviewPanel" class="overview-panel">
       <div class="overview-header">
-        <h1 class="overview-title">ThermPro Overview</h1>
+        <h1 class="overview-title">Filament Humidity/Temp</h1>
         <div id="overviewMeta" class="overview-meta">Updated --</div>
       </div>
       <div id="overviewGrid" class="overview-grid"></div>
@@ -823,11 +851,9 @@
     const MIN_SECONDS = 10;
     const MAX_SECONDS = 172800;
     const REFRESH_MS = 10000;
-    const ALIAS_STORAGE_KEY = "thermpro_sensor_aliases_v1";
-    const SETTINGS_STORAGE_KEY = "thermpro_dashboard_settings_v1";
-    const THRESHOLD_STORAGE_KEY = "thermpro_sensor_thresholds_v1";
     const TEMP_NEAR_MARGIN_C = 1.0;
     const HUMIDITY_NEAR_MARGIN_PCT = 5;
+    const SENSOR_STALE_SECONDS = 90;
 
     const state = {
       devices: [],
@@ -896,25 +922,9 @@
       return String(address || "").trim().toLowerCase();
     }
 
-    function loadSensorAliases() {
-      try {
-        const raw = localStorage.getItem(ALIAS_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          state.sensorAliases = parsed;
-        }
-      } catch (_) {
-        state.sensorAliases = {};
-      }
-    }
-
-    function persistSensorAliases() {
-      try {
-        localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(state.sensorAliases));
-      } catch (_) {
-      }
-    }
+    let dashboardSettingsSaveTimer = null;
+    let dashboardSettingsSaveInFlight = false;
+    let dashboardSettingsNeedsResave = false;
 
     function emptyThresholds() {
       return {
@@ -950,80 +960,153 @@
       );
     }
 
-    function loadSensorThresholds() {
-      try {
-        const raw = localStorage.getItem(THRESHOLD_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object") return;
-
-        const mapped = {};
-        for (const [address, value] of Object.entries(parsed)) {
-          const key = normalizeAddress(address);
-          if (!key) continue;
-          const normalized = normalizeThresholds(value);
-          if (hasAnyThreshold(normalized)) {
-            mapped[key] = normalized;
-          }
-        }
-        state.sensorThresholds = mapped;
-      } catch (_) {
-        state.sensorThresholds = {};
-      }
-    }
-
-    function persistSensorThresholds() {
-      try {
-        localStorage.setItem(THRESHOLD_STORAGE_KEY, JSON.stringify(state.sensorThresholds));
-      } catch (_) {
-      }
-    }
-
     function getThresholdsForAddress(address) {
       const key = normalizeAddress(address);
       if (!key) return emptyThresholds();
       return normalizeThresholds(state.sensorThresholds[key]);
     }
 
-    function loadDashboardSettings() {
-      try {
-        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-        if (!raw) return;
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object") return;
+    function coerceBoolean(value, defaultValue) {
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value !== 0;
+      if (typeof value === "string") {
+        const lowered = value.trim().toLowerCase();
+        if (["1", "true", "yes", "y", "on"].includes(lowered)) return true;
+        if (["0", "false", "no", "n", "off"].includes(lowered)) return false;
+      }
+      return defaultValue;
+    }
 
-        if (typeof parsed.selectedAddress === "string") {
-          state.selectedAddress = parsed.selectedAddress || null;
+    async function apiFetchJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let payload = {};
+      if (text) {
+        try {
+          payload = JSON.parse(text);
+        } catch (_) {
+          payload = {error: text};
         }
-        if (typeof parsed.windowSeconds === "number") {
-          state.windowSeconds = Math.max(MIN_SECONDS, Math.min(MAX_SECONDS, Math.round(parsed.windowSeconds)));
+      }
+      if (!response.ok) {
+        const errorMessage = payload && payload.error
+          ? String(payload.error)
+          : `${response.status} ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+      return payload;
+    }
+
+    async function loadPersistedSettings() {
+      const payload = await apiFetchJson("/api/settings");
+
+      const dashboard = payload.dashboard_settings && typeof payload.dashboard_settings === "object"
+        ? payload.dashboard_settings
+        : {};
+      const selectedAddress = normalizeAddress(dashboard.selected_address || "");
+      state.selectedAddress = selectedAddress || null;
+      state.windowSeconds = Math.max(
+        MIN_SECONDS,
+        Math.min(MAX_SECONDS, Math.round(Number(dashboard.window_seconds) || 3600)),
+      );
+      state.showTemp = coerceBoolean(dashboard.show_temp, true);
+      state.showHumidity = coerceBoolean(dashboard.show_humidity, true);
+      state.temperatureUnit = dashboard.temperature_unit === "F" ? "F" : "C";
+
+      state.sensorAliases = {};
+      state.sensorThresholds = {};
+      const sensorSettings = payload.sensor_settings && typeof payload.sensor_settings === "object"
+        ? payload.sensor_settings
+        : {};
+      for (const [address, value] of Object.entries(sensorSettings)) {
+        if (!value || typeof value !== "object") continue;
+        const key = normalizeAddress(address);
+        if (!key) continue;
+
+        const alias = typeof value.alias === "string" ? value.alias.trim() : "";
+        if (alias) {
+          state.sensorAliases[key] = alias;
         }
-        if (typeof parsed.showTemp === "boolean") {
-          state.showTemp = parsed.showTemp;
+
+        const normalized = normalizeThresholds({
+          tempLowC: value.temp_low_c,
+          tempHighC: value.temp_high_c,
+          humidityLow: value.humidity_low,
+          humidityHigh: value.humidity_high,
+        });
+        if (hasAnyThreshold(normalized)) {
+          state.sensorThresholds[key] = normalized;
         }
-        if (typeof parsed.showHumidity === "boolean") {
-          state.showHumidity = parsed.showHumidity;
-        }
-        if (parsed.temperatureUnit === "C" || parsed.temperatureUnit === "F") {
-          state.temperatureUnit = parsed.temperatureUnit;
-        }
-      } catch (_) {
       }
     }
 
-    function persistDashboardSettings() {
+    async function persistDashboardSettings() {
+      if (dashboardSettingsSaveInFlight) {
+        dashboardSettingsNeedsResave = true;
+        return;
+      }
+      dashboardSettingsSaveInFlight = true;
       try {
-        localStorage.setItem(
-          SETTINGS_STORAGE_KEY,
-          JSON.stringify({
-            selectedAddress: state.selectedAddress,
-            windowSeconds: state.windowSeconds,
-            showTemp: state.showTemp,
-            showHumidity: state.showHumidity,
-            temperatureUnit: state.temperatureUnit,
+        await apiFetchJson("/api/settings/dashboard", {
+          method: "PUT",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            selected_address: state.selectedAddress,
+            window_seconds: state.windowSeconds,
+            show_temp: state.showTemp,
+            show_humidity: state.showHumidity,
+            temperature_unit: state.temperatureUnit,
           }),
-        );
-      } catch (_) {
+        });
+      } catch (error) {
+        console.error("[diagnostics] persist_dashboard_settings_failed", {
+          timestamp: new Date().toISOString(),
+          error: String(error.message || error),
+        });
+      } finally {
+        dashboardSettingsSaveInFlight = false;
+        if (dashboardSettingsNeedsResave) {
+          dashboardSettingsNeedsResave = false;
+          persistDashboardSettings();
+        }
+      }
+    }
+
+    function queuePersistDashboardSettings() {
+      if (dashboardSettingsSaveTimer !== null) {
+        window.clearTimeout(dashboardSettingsSaveTimer);
+      }
+      dashboardSettingsSaveTimer = window.setTimeout(() => {
+        dashboardSettingsSaveTimer = null;
+        persistDashboardSettings();
+      }, 150);
+    }
+
+    async function persistSensorSettingsForAddress(address) {
+      const key = normalizeAddress(address);
+      if (!key) return;
+      const alias = state.sensorAliases[key] || null;
+      const thresholds = getThresholdsForAddress(key);
+
+      try {
+        await apiFetchJson(`/api/settings/sensor/${encodeURIComponent(key)}`, {
+          method: "PUT",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            alias,
+            temp_low_c: thresholds.tempLowC,
+            temp_high_c: thresholds.tempHighC,
+            humidity_low: thresholds.humidityLow,
+            humidity_high: thresholds.humidityHigh,
+          }),
+        });
+      } catch (error) {
+        console.error("[diagnostics] persist_sensor_settings_failed", {
+          timestamp: new Date().toISOString(),
+          address: key,
+          error: String(error.message || error),
+        });
+        throw error;
       }
     }
 
@@ -1066,6 +1149,38 @@
 
     function formatHumidityValue(humidity) {
       return Number.isFinite(humidity) ? `${Math.round(humidity)}%` : "--";
+    }
+
+    function getDeviceAgeSeconds(device) {
+      const timestamp = new Date(device.recorded_at || "").getTime();
+      if (!Number.isFinite(timestamp)) return Number.POSITIVE_INFINITY;
+      return Math.max(0, (Date.now() - timestamp) / 1000);
+    }
+
+    function getDeviceBatteryLevel(device) {
+      const battery = Number(device.battery_pct);
+      return Number.isFinite(battery) ? battery : null;
+    }
+
+    function isDeviceBatteryOut(device) {
+      const battery = getDeviceBatteryLevel(device);
+      return battery !== null && battery <= 1;
+    }
+
+    function isDeviceStale(device) {
+      return getDeviceAgeSeconds(device) > SENSOR_STALE_SECONDS;
+    }
+
+    function isDeviceNonFunctional(device) {
+      return isDeviceBatteryOut(device) || isDeviceStale(device);
+    }
+
+    function getBatteryTextClass(device) {
+      const battery = getDeviceBatteryLevel(device);
+      if (battery === null) return "";
+      if (battery < 10) return "overview-battery--critical";
+      if (battery < 20) return "overview-battery--warning";
+      return "";
     }
 
     function isWithinThresholdProximity(value, low, high, margin) {
@@ -1116,13 +1231,18 @@
         for (const device of devices) {
           const card = document.createElement("button");
           card.type = "button";
-          card.className = `overview-card overview-card--${getOverviewCardSeverity(device)}`;
+          const isNonFunctional = isDeviceNonFunctional(device);
+          card.className = `overview-card overview-card--${getOverviewCardSeverity(device)}${isNonFunctional ? " overview-card--disabled" : ""}`;
 
           const tempText = formatTemperature(Number(device.temperature_c));
           const humidityText = formatHumidityValue(Number(device.humidity_pct));
-          const batteryText = device.battery_pct === null || device.battery_pct === undefined
-            ? "Battery --"
-            : `Battery ${device.battery_pct}%`;
+          const batteryLevel = getDeviceBatteryLevel(device);
+          let batteryText = batteryLevel === null ? "Battery --" : `Battery ${batteryLevel}%`;
+          if (isDeviceStale(device)) {
+            batteryText = batteryText === "Battery --"
+              ? "No recent signal"
+              : `${batteryText} | No recent signal`;
+          }
 
           const nameNode = document.createElement("div");
           nameNode.className = "overview-name";
@@ -1158,6 +1278,10 @@
 
           const batteryNode = document.createElement("div");
           batteryNode.className = "overview-battery";
+          const batteryClass = getBatteryTextClass(device);
+          if (batteryClass) {
+            batteryNode.classList.add(batteryClass);
+          }
           batteryNode.textContent = batteryText;
 
           card.appendChild(nameNode);
@@ -1186,7 +1310,7 @@
       if (!normalizedAddress) return;
 
       state.selectedAddress = normalizedAddress;
-      persistDashboardSettings();
+      await persistDashboardSettings();
       renderDeviceSelect(normalizedAddress);
       syncAliasEditor(true);
       syncThresholdEditor(true);
@@ -1892,7 +2016,7 @@
       return parsed;
     }
 
-    function saveSelectedThresholds() {
+    async function saveSelectedThresholds() {
       if (!state.selectedAddress) {
         throw new Error("Choose a sensor before saving thresholds.");
       }
@@ -1937,7 +2061,7 @@
       } else {
         delete state.sensorThresholds[key];
       }
-      persistSensorThresholds();
+      await persistSensorSettingsForAddress(key);
       state.thresholdInputAddress = key;
       state.thresholdInputDirty = false;
       syncThresholdEditor(true);
@@ -2001,7 +2125,7 @@
         updateChartTitle();
         updateAlertBanner();
         updateAlertsList();
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         return;
       }
 
@@ -2022,7 +2146,7 @@
       updateChartTitle();
       updateAlertBanner();
       if (selectedBeforeRender !== state.selectedAddress) {
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
       }
     }
 
@@ -2104,7 +2228,7 @@
 
       dom.deviceSelect.addEventListener("change", async () => {
         state.selectedAddress = dom.deviceSelect.value || null;
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         syncAliasEditor(true);
         syncThresholdEditor(true);
         updateChartTitle();
@@ -2116,7 +2240,7 @@
         const sec = sliderToSeconds(dom.windowSlider.value);
         state.windowSeconds = sec;
         dom.windowSeconds.value = String(sec);
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         await loadHistory();
       });
 
@@ -2125,25 +2249,25 @@
         state.windowSeconds = sec;
         dom.windowSeconds.value = String(sec);
         dom.windowSlider.value = String(secondsToSlider(sec));
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         await loadHistory();
       });
 
       dom.showTemp.addEventListener("change", () => {
         state.showTemp = dom.showTemp.checked;
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         drawChart();
       });
 
       dom.showHumidity.addEventListener("change", () => {
         state.showHumidity = dom.showHumidity.checked;
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         drawChart();
       });
 
       const applySelectedUnit = () => {
         state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
-        persistDashboardSettings();
+        queuePersistDashboardSettings();
         updateThresholdTemperatureLabels();
         syncThresholdEditor(true);
         updateActiveAlertsFromDevices();
@@ -2155,7 +2279,7 @@
       dom.tempUnitC.addEventListener("change", applySelectedUnit);
       dom.tempUnitF.addEventListener("change", applySelectedUnit);
 
-      dom.saveAliasButton.addEventListener("click", () => {
+      dom.saveAliasButton.addEventListener("click", async () => {
         if (!state.selectedAddress) return;
         const key = normalizeAddress(state.selectedAddress);
         const alias = dom.sensorAliasInput.value.trim();
@@ -2164,25 +2288,33 @@
         } else {
           delete state.sensorAliases[key];
         }
-        persistSensorAliases();
-        state.aliasInputAddress = key;
-        state.aliasInputDirty = false;
-        renderDeviceSelect();
-        updateActiveAlertsFromDevices();
-        updateStatusText();
+        try {
+          await persistSensorSettingsForAddress(key);
+          state.aliasInputAddress = key;
+          state.aliasInputDirty = false;
+          renderDeviceSelect();
+          updateActiveAlertsFromDevices();
+          updateStatusText();
+        } catch (err) {
+          dom.statusText.textContent = String(err.message || err);
+        }
       });
 
-      dom.clearAliasButton.addEventListener("click", () => {
+      dom.clearAliasButton.addEventListener("click", async () => {
         if (!state.selectedAddress) return;
         const key = normalizeAddress(state.selectedAddress);
         delete state.sensorAliases[key];
         dom.sensorAliasInput.value = "";
-        state.aliasInputAddress = key;
-        state.aliasInputDirty = false;
-        persistSensorAliases();
-        renderDeviceSelect();
-        updateActiveAlertsFromDevices();
-        updateStatusText();
+        try {
+          await persistSensorSettingsForAddress(key);
+          state.aliasInputAddress = key;
+          state.aliasInputDirty = false;
+          renderDeviceSelect();
+          updateActiveAlertsFromDevices();
+          updateStatusText();
+        } catch (err) {
+          dom.statusText.textContent = String(err.message || err);
+        }
       });
 
       dom.sensorAliasInput.addEventListener("input", () => {
@@ -2208,28 +2340,32 @@
         });
       }
 
-      dom.saveThresholdButton.addEventListener("click", () => {
+      dom.saveThresholdButton.addEventListener("click", async () => {
         try {
-          saveSelectedThresholds();
+          await saveSelectedThresholds();
         } catch (err) {
           dom.statusText.textContent = String(err.message || err);
         }
       });
 
-      dom.clearThresholdButton.addEventListener("click", () => {
+      dom.clearThresholdButton.addEventListener("click", async () => {
         if (!state.selectedAddress) return;
         const key = normalizeAddress(state.selectedAddress);
         delete state.sensorThresholds[key];
-        persistSensorThresholds();
-        state.thresholdInputAddress = key;
-        state.thresholdInputDirty = false;
-        syncThresholdEditor(true);
-        console.info("[diagnostics] threshold_settings_cleared", {
-          timestamp: new Date().toISOString(),
-          address: key,
-        });
-        updateActiveAlertsFromDevices();
-        updateStatusText();
+        try {
+          await persistSensorSettingsForAddress(key);
+          state.thresholdInputAddress = key;
+          state.thresholdInputDirty = false;
+          syncThresholdEditor(true);
+          console.info("[diagnostics] threshold_settings_cleared", {
+            timestamp: new Date().toISOString(),
+            address: key,
+          });
+          updateActiveAlertsFromDevices();
+          updateStatusText();
+        } catch (err) {
+          dom.statusText.textContent = String(err.message || err);
+        }
       });
 
       window.addEventListener("resize", () => {
@@ -2242,11 +2378,16 @@
     }
 
     async function init() {
-      loadDashboardSettings();
+      try {
+        await loadPersistedSettings();
+      } catch (error) {
+        console.error("[diagnostics] load_persisted_settings_failed", {
+          timestamp: new Date().toISOString(),
+          error: String(error.message || error),
+        });
+      }
       applySettingsToControls();
 
-      loadSensorAliases();
-      loadSensorThresholds();
       syncThresholdEditor(true);
       setViewMode("overview");
       renderOverviewCards();

@@ -5,13 +5,14 @@ This project includes:
 - `thermpro_monitor.py`: BLE collector service (writes readings to SQLite)
 - `thermpro_web.py`: web app dashboard
 - `templates/index.html`: graph UI with:
-  - title `ThermPro Monitor`
+  - overview title `Filament Humidity/Temp`
   - default overview page with all connected ThermoPro sensors
   - multiple ThermoPro sensor support with per-sensor selection
   - clickable per-sensor cards (name, humidity, temperature, battery) that open the chart view
   - temperature/humidity toggles (either or both)
   - timescale control from 10 seconds to 48 hours
   - per-sensor threshold settings for temperature/humidity
+  - sensor identifiers, thresholds, and dashboard preferences persisted in SQLite for shared browser access
   - on-screen threshold alert banner and active-alert list
   - live refresh every 10 seconds
   - battery status in the graph's upper-right corner
@@ -106,4 +107,4 @@ cp /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/Desktop/
 chmod +x ~/Desktop/thermpro-monitor.desktop
 ```
 
-You can then click `ThermPro Monitor` from the desktop/main page, and it will open full-screen kiosk mode.
+You can then click `Filament Humidity/Temp` from the desktop/main page, and it will open this dashboard in full-screen kiosk mode.
