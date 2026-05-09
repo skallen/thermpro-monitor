@@ -106,6 +106,33 @@
       pointer-events: none;
     }
 
+    .alert-banner {
+      position: absolute;
+      top: 3rem;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 5;
+      max-width: min(94vw, 980px);
+      padding: 0.34rem 0.72rem;
+      border-radius: 10px;
+      border: 1px solid #d49ba1;
+      background: rgba(145, 24, 34, 0.92);
+      color: #ffffff;
+      font-size: 0.86rem;
+      font-weight: 600;
+      line-height: 1.3;
+      text-align: center;
+      pointer-events: none;
+      box-shadow: 0 8px 16px rgba(88, 12, 22, 0.28);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .alert-banner.hidden {
+      display: none;
+    }
+
     .legend {
       position: absolute;
       left: 0.78rem;
@@ -383,6 +410,46 @@
       cursor: pointer;
     }
 
+    .threshold-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.48rem;
+    }
+
+    .threshold-actions {
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 0.1rem;
+    }
+
+    .alert-list {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.48rem 0.56rem;
+      background: #fff;
+      min-height: 3.6rem;
+      max-height: 9.4rem;
+      overflow-y: auto;
+      font-size: 0.85rem;
+      line-height: 1.32;
+      color: #233849;
+    }
+
+    .alert-list-line {
+      margin-bottom: 0.3rem;
+    }
+
+    .alert-list-line:last-child {
+      margin-bottom: 0;
+    }
+
+    .alert-list-line.critical {
+      color: #7e121d;
+      font-weight: 600;
+    }
+
     @media (max-width: 720px) {
       .shell {
         padding: 0.45rem;
@@ -415,6 +482,15 @@
       #chartTitle {
         font-size: 1.15rem;
       }
+
+      .alert-banner {
+        top: 2.95rem;
+        max-width: calc(100vw - 1.3rem);
+      }
+
+      .threshold-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -429,6 +505,7 @@
       <div id="currentTimeDisplay">--:--:--</div>
       <div id="chartTitle">ThermPro Monitor</div>
       <div id="batteryBadge">Battery: --</div>
+      <div id="alertBanner" class="alert-banner hidden" role="status" aria-live="polite"></div>
       <div class="legend">
         <span>CURRENT -</span>
         <span><span class="swatch temp"></span>Temperature: <span id="currentTempValue">--</span></span>
@@ -480,12 +557,43 @@
         </div>
 
         <div class="control">
+          <label>Threshold alerts (selected sensor)</label>
+          <div class="threshold-grid">
+            <div class="control">
+              <label id="thresholdTempLowLabel" for="thresholdTempLow">Temp low (C)</label>
+              <input id="thresholdTempLow" type="number" step="0.1" placeholder="off">
+            </div>
+            <div class="control">
+              <label id="thresholdTempHighLabel" for="thresholdTempHigh">Temp high (C)</label>
+              <input id="thresholdTempHigh" type="number" step="0.1" placeholder="off">
+            </div>
+            <div class="control">
+              <label for="thresholdHumidityLow">Humidity low (%)</label>
+              <input id="thresholdHumidityLow" type="number" min="0" max="100" step="1" placeholder="off">
+            </div>
+            <div class="control">
+              <label for="thresholdHumidityHigh">Humidity high (%)</label>
+              <input id="thresholdHumidityHigh" type="number" min="0" max="100" step="1" placeholder="off">
+            </div>
+          </div>
+          <div class="threshold-actions">
+            <button id="saveThresholdButton" class="alias-button" type="button">Save Thresholds</button>
+            <button id="clearThresholdButton" class="alias-button" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div class="control">
           <label for="sensorAliasInput">Sensor chart name</label>
           <input id="sensorAliasInput" type="text" maxlength="40" placeholder="Enter custom name">
           <div class="alias-actions">
             <button id="saveAliasButton" class="alias-button" type="button">Save Name</button>
             <button id="clearAliasButton" class="alias-button" type="button">Clear</button>
           </div>
+        </div>
+
+        <div class="control">
+          <label for="alertsList">Active alerts (all sensors)</label>
+          <div id="alertsList" class="alert-list"></div>
         </div>
       </section>
 
@@ -499,6 +607,7 @@
     const REFRESH_MS = 10000;
     const ALIAS_STORAGE_KEY = "thermpro_sensor_aliases_v1";
     const SETTINGS_STORAGE_KEY = "thermpro_dashboard_settings_v1";
+    const THRESHOLD_STORAGE_KEY = "thermpro_sensor_thresholds_v1";
 
     const state = {
       devices: [],
@@ -516,6 +625,10 @@
       sensorAliases: {},
       aliasInputAddress: null,
       aliasInputDirty: false,
+      sensorThresholds: {},
+      thresholdInputAddress: null,
+      thresholdInputDirty: false,
+      activeAlertsByAddress: {},
     };
 
     const dom = {
@@ -531,9 +644,19 @@
       showHumidity: document.getElementById("showHumidity"),
       tempUnitC: document.getElementById("tempUnitC"),
       tempUnitF: document.getElementById("tempUnitF"),
+      thresholdTempLowLabel: document.getElementById("thresholdTempLowLabel"),
+      thresholdTempHighLabel: document.getElementById("thresholdTempHighLabel"),
+      thresholdTempLow: document.getElementById("thresholdTempLow"),
+      thresholdTempHigh: document.getElementById("thresholdTempHigh"),
+      thresholdHumidityLow: document.getElementById("thresholdHumidityLow"),
+      thresholdHumidityHigh: document.getElementById("thresholdHumidityHigh"),
+      saveThresholdButton: document.getElementById("saveThresholdButton"),
+      clearThresholdButton: document.getElementById("clearThresholdButton"),
       sensorAliasInput: document.getElementById("sensorAliasInput"),
       saveAliasButton: document.getElementById("saveAliasButton"),
       clearAliasButton: document.getElementById("clearAliasButton"),
+      alertBanner: document.getElementById("alertBanner"),
+      alertsList: document.getElementById("alertsList"),
       statusText: document.getElementById("statusText"),
       batteryBadge: document.getElementById("batteryBadge"),
       chartTitle: document.getElementById("chartTitle"),
@@ -565,6 +688,75 @@
         localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(state.sensorAliases));
       } catch (_) {
       }
+    }
+
+    function emptyThresholds() {
+      return {
+        tempLowC: null,
+        tempHighC: null,
+        humidityLow: null,
+        humidityHigh: null,
+      };
+    }
+
+    function normalizeThresholds(thresholds) {
+      const normalized = emptyThresholds();
+      if (!thresholds || typeof thresholds !== "object") return normalized;
+
+      const tempLowC = Number(thresholds.tempLowC);
+      const tempHighC = Number(thresholds.tempHighC);
+      const humidityLow = Number(thresholds.humidityLow);
+      const humidityHigh = Number(thresholds.humidityHigh);
+
+      if (Number.isFinite(tempLowC)) normalized.tempLowC = tempLowC;
+      if (Number.isFinite(tempHighC)) normalized.tempHighC = tempHighC;
+      if (Number.isFinite(humidityLow)) normalized.humidityLow = Math.max(0, Math.min(100, humidityLow));
+      if (Number.isFinite(humidityHigh)) normalized.humidityHigh = Math.max(0, Math.min(100, humidityHigh));
+      return normalized;
+    }
+
+    function hasAnyThreshold(thresholds) {
+      return (
+        thresholds.tempLowC !== null ||
+        thresholds.tempHighC !== null ||
+        thresholds.humidityLow !== null ||
+        thresholds.humidityHigh !== null
+      );
+    }
+
+    function loadSensorThresholds() {
+      try {
+        const raw = localStorage.getItem(THRESHOLD_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return;
+
+        const mapped = {};
+        for (const [address, value] of Object.entries(parsed)) {
+          const key = normalizeAddress(address);
+          if (!key) continue;
+          const normalized = normalizeThresholds(value);
+          if (hasAnyThreshold(normalized)) {
+            mapped[key] = normalized;
+          }
+        }
+        state.sensorThresholds = mapped;
+      } catch (_) {
+        state.sensorThresholds = {};
+      }
+    }
+
+    function persistSensorThresholds() {
+      try {
+        localStorage.setItem(THRESHOLD_STORAGE_KEY, JSON.stringify(state.sensorThresholds));
+      } catch (_) {
+      }
+    }
+
+    function getThresholdsForAddress(address) {
+      const key = normalizeAddress(address);
+      if (!key) return emptyThresholds();
+      return normalizeThresholds(state.sensorThresholds[key]);
     }
 
     function loadDashboardSettings() {
@@ -616,6 +808,7 @@
       dom.showHumidity.checked = state.showHumidity;
       dom.tempUnitF.checked = state.temperatureUnit === "F";
       dom.tempUnitC.checked = state.temperatureUnit !== "F";
+      updateThresholdTemperatureLabels();
     }
 
     function getAliasForAddress(address) {
@@ -650,6 +843,46 @@
       dom.sensorAliasInput.value = getAliasForAddress(currentAddress);
       state.aliasInputAddress = currentAddress;
       state.aliasInputDirty = false;
+    }
+
+    function setThresholdInputsDisabled(disabled) {
+      dom.thresholdTempLow.disabled = disabled;
+      dom.thresholdTempHigh.disabled = disabled;
+      dom.thresholdHumidityLow.disabled = disabled;
+      dom.thresholdHumidityHigh.disabled = disabled;
+      dom.saveThresholdButton.disabled = disabled;
+      dom.clearThresholdButton.disabled = disabled;
+    }
+
+    function syncThresholdEditor(force = false) {
+      const currentAddress = normalizeAddress(state.selectedAddress);
+      if (!currentAddress) {
+        dom.thresholdTempLow.value = "";
+        dom.thresholdTempHigh.value = "";
+        dom.thresholdHumidityLow.value = "";
+        dom.thresholdHumidityHigh.value = "";
+        state.thresholdInputAddress = null;
+        state.thresholdInputDirty = false;
+        setThresholdInputsDisabled(true);
+        return;
+      }
+
+      setThresholdInputsDisabled(false);
+      if (
+        !force &&
+        state.thresholdInputDirty &&
+        state.thresholdInputAddress === currentAddress
+      ) {
+        return;
+      }
+
+      const thresholds = getThresholdsForAddress(currentAddress);
+      dom.thresholdTempLow.value = thresholds.tempLowC === null ? "" : convertTempFromC(thresholds.tempLowC).toFixed(1);
+      dom.thresholdTempHigh.value = thresholds.tempHighC === null ? "" : convertTempFromC(thresholds.tempHighC).toFixed(1);
+      dom.thresholdHumidityLow.value = thresholds.humidityLow === null ? "" : String(Math.round(thresholds.humidityLow));
+      dom.thresholdHumidityHigh.value = thresholds.humidityHigh === null ? "" : String(Math.round(thresholds.humidityHigh));
+      state.thresholdInputAddress = currentAddress;
+      state.thresholdInputDirty = false;
     }
 
     function updateChartTitle() {
@@ -702,6 +935,162 @@
       if (!Number.isFinite(celsiusValue)) return "--";
       const converted = convertTempFromC(celsiusValue);
       return `${converted.toFixed(1)} ${tempUnitSuffix()}`;
+    }
+
+    function convertTempToC(displayValue) {
+      if (!Number.isFinite(displayValue)) return displayValue;
+      return state.temperatureUnit === "F"
+        ? (displayValue - 32) * 5 / 9
+        : displayValue;
+    }
+
+    function updateThresholdTemperatureLabels() {
+      const unit = tempUnitSuffix();
+      dom.thresholdTempLowLabel.textContent = `Temp low (${unit})`;
+      dom.thresholdTempHighLabel.textContent = `Temp high (${unit})`;
+    }
+
+    function getSelectedAlerts() {
+      const key = normalizeAddress(state.selectedAddress);
+      return key ? (state.activeAlertsByAddress[key] || []) : [];
+    }
+
+    function formatTempThreshold(celsiusValue) {
+      if (celsiusValue === null || celsiusValue === undefined) return "off";
+      return `${convertTempFromC(celsiusValue).toFixed(1)} ${tempUnitSuffix()}`;
+    }
+
+    function formatHumidityThreshold(percentValue) {
+      if (percentValue === null || percentValue === undefined) return "off";
+      return `${Math.round(percentValue)}%`;
+    }
+
+    function formatThresholdSummary(address) {
+      const thresholds = getThresholdsForAddress(address);
+      return (
+        `Temp low: ${formatTempThreshold(thresholds.tempLowC)}, ` +
+        `Temp high: ${formatTempThreshold(thresholds.tempHighC)}, ` +
+        `RH low: ${formatHumidityThreshold(thresholds.humidityLow)}, ` +
+        `RH high: ${formatHumidityThreshold(thresholds.humidityHigh)}`
+      );
+    }
+
+    function buildAlertsForDevice(device) {
+      const thresholds = getThresholdsForAddress(device.address);
+      if (!hasAnyThreshold(thresholds)) return [];
+
+      const alerts = [];
+      const tempC = Number(device.temperature_c);
+      const humidity = Number(device.humidity_pct);
+
+      if (Number.isFinite(tempC)) {
+        if (thresholds.tempLowC !== null && tempC < thresholds.tempLowC) {
+          alerts.push(`Temp ${formatTemperature(tempC)} below ${formatTempThreshold(thresholds.tempLowC)}`);
+        }
+        if (thresholds.tempHighC !== null && tempC > thresholds.tempHighC) {
+          alerts.push(`Temp ${formatTemperature(tempC)} above ${formatTempThreshold(thresholds.tempHighC)}`);
+        }
+      }
+
+      if (Number.isFinite(humidity)) {
+        if (thresholds.humidityLow !== null && humidity < thresholds.humidityLow) {
+          alerts.push(`RH ${Math.round(humidity)}% below ${formatHumidityThreshold(thresholds.humidityLow)}`);
+        }
+        if (thresholds.humidityHigh !== null && humidity > thresholds.humidityHigh) {
+          alerts.push(`RH ${Math.round(humidity)}% above ${formatHumidityThreshold(thresholds.humidityHigh)}`);
+        }
+      }
+
+      return alerts;
+    }
+
+    function serializeAlertMap(alertMap) {
+      const stable = {};
+      for (const address of Object.keys(alertMap).sort()) {
+        stable[address] = alertMap[address];
+      }
+      return JSON.stringify(stable);
+    }
+
+    function updateAlertBanner() {
+      const selectedAlerts = getSelectedAlerts();
+      if (!selectedAlerts.length) {
+        dom.alertBanner.classList.add("hidden");
+        dom.alertBanner.textContent = "";
+        return;
+      }
+
+      const selected = getSelectedDevice();
+      const selectedAddress = normalizeAddress(state.selectedAddress);
+      const selectedName = selected
+        ? getDisplayName(selected.name, selected.address)
+        : (selectedAddress || "Selected sensor");
+
+      let totalOtherAlerts = 0;
+      for (const [address, alerts] of Object.entries(state.activeAlertsByAddress)) {
+        if (address === selectedAddress) continue;
+        totalOtherAlerts += alerts.length;
+      }
+
+      const suffix = totalOtherAlerts > 0
+        ? ` | ${totalOtherAlerts} other active alert${totalOtherAlerts === 1 ? "" : "s"}`
+        : "";
+
+      dom.alertBanner.textContent = `${selectedName}: ${selectedAlerts.join(" | ")}${suffix}`;
+      dom.alertBanner.classList.remove("hidden");
+    }
+
+    function updateAlertsList() {
+      const lines = [];
+      for (const device of state.devices) {
+        const address = normalizeAddress(device.address);
+        const alerts = state.activeAlertsByAddress[address] || [];
+        if (!alerts.length) continue;
+        const name = getDisplayName(device.name, device.address);
+        for (const alert of alerts) {
+          lines.push(`${name}: ${alert}`);
+        }
+      }
+
+      dom.alertsList.innerHTML = "";
+      if (!lines.length) {
+        dom.alertsList.textContent = "No active alerts.";
+        return;
+      }
+
+      for (const line of lines) {
+        const node = document.createElement("div");
+        node.className = "alert-list-line critical";
+        node.textContent = line;
+        dom.alertsList.appendChild(node);
+      }
+    }
+
+    function updateActiveAlertsFromDevices() {
+      const previous = state.activeAlertsByAddress;
+      const next = {};
+      for (const device of state.devices) {
+        const address = normalizeAddress(device.address);
+        if (!address) continue;
+        const alerts = buildAlertsForDevice(device);
+        if (alerts.length) {
+          next[address] = alerts;
+        }
+      }
+
+      const prevSignature = serializeAlertMap(previous);
+      const nextSignature = serializeAlertMap(next);
+      if (prevSignature !== nextSignature) {
+        console.info("[diagnostics] threshold_alerts_changed", {
+          timestamp: new Date().toISOString(),
+          previous,
+          next,
+        });
+      }
+
+      state.activeAlertsByAddress = next;
+      updateAlertsList();
+      updateAlertBanner();
     }
 
     function formatTimestamp(isoValue) {
@@ -1121,6 +1510,74 @@
       dom.batteryBadge.textContent = `Battery: ${state.batteryPct}%`;
     }
 
+    function parseOptionalNumberInput(rawValue, label) {
+      const text = String(rawValue || "").trim();
+      if (!text) return null;
+      const parsed = Number(text);
+      if (!Number.isFinite(parsed)) {
+        throw new Error(`${label} must be a valid number.`);
+      }
+      return parsed;
+    }
+
+    function saveSelectedThresholds() {
+      if (!state.selectedAddress) {
+        throw new Error("Choose a sensor before saving thresholds.");
+      }
+
+      const tempLowValue = parseOptionalNumberInput(dom.thresholdTempLow.value, "Temp low");
+      const tempHighValue = parseOptionalNumberInput(dom.thresholdTempHigh.value, "Temp high");
+      const humidityLowValue = parseOptionalNumberInput(dom.thresholdHumidityLow.value, "Humidity low");
+      const humidityHighValue = parseOptionalNumberInput(dom.thresholdHumidityHigh.value, "Humidity high");
+
+      if (humidityLowValue !== null && (humidityLowValue < 0 || humidityLowValue > 100)) {
+        throw new Error("Humidity low must be between 0 and 100.");
+      }
+      if (humidityHighValue !== null && (humidityHighValue < 0 || humidityHighValue > 100)) {
+        throw new Error("Humidity high must be between 0 and 100.");
+      }
+
+      const thresholds = normalizeThresholds({
+        tempLowC: tempLowValue === null ? null : convertTempToC(tempLowValue),
+        tempHighC: tempHighValue === null ? null : convertTempToC(tempHighValue),
+        humidityLow: humidityLowValue,
+        humidityHigh: humidityHighValue,
+      });
+
+      if (
+        thresholds.tempLowC !== null &&
+        thresholds.tempHighC !== null &&
+        thresholds.tempLowC > thresholds.tempHighC
+      ) {
+        throw new Error("Temp low must be less than or equal to temp high.");
+      }
+      if (
+        thresholds.humidityLow !== null &&
+        thresholds.humidityHigh !== null &&
+        thresholds.humidityLow > thresholds.humidityHigh
+      ) {
+        throw new Error("Humidity low must be less than or equal to humidity high.");
+      }
+
+      const key = normalizeAddress(state.selectedAddress);
+      if (hasAnyThreshold(thresholds)) {
+        state.sensorThresholds[key] = thresholds;
+      } else {
+        delete state.sensorThresholds[key];
+      }
+      persistSensorThresholds();
+      state.thresholdInputAddress = key;
+      state.thresholdInputDirty = false;
+      syncThresholdEditor(true);
+      console.info("[diagnostics] threshold_settings_saved", {
+        timestamp: new Date().toISOString(),
+        address: key,
+        thresholds: state.sensorThresholds[key] || emptyThresholds(),
+      });
+      updateActiveAlertsFromDevices();
+      updateStatusText();
+    }
+
     function updateStatusText() {
       if (!state.latest) {
         dom.statusText.textContent = "No sensor data loaded yet.";
@@ -1134,12 +1591,17 @@
       const tempText = formatTemperature(Number(state.latest.latestTemp));
       const humValue = Number(state.latest.latestHumidity);
       const humText = Number.isFinite(humValue) ? `${Math.round(humValue)}%` : "--";
+      const thresholdText = formatThresholdSummary(state.selectedAddress);
+      const alerts = getSelectedAlerts();
+      const alertText = alerts.length ? alerts.join(" | ") : "none";
 
       dom.statusText.textContent =
         `Sensor: ${deviceName}\n` +
         `Latest: ${latestTs}\n` +
         `Temperature: ${tempText}\n` +
         `Humidity: ${humText}\n` +
+        `Thresholds: ${thresholdText}\n` +
+        `Alerts: ${alertText}\n` +
         `Window: ${formatWindow(state.windowSeconds)}`;
     }
 
@@ -1150,6 +1612,7 @@
       state.devices = payload.devices || [];
 
       renderDeviceSelect(payload.default_address || null);
+      updateActiveAlertsFromDevices();
     }
 
     function renderDeviceSelect(defaultAddress = null) {
@@ -1162,7 +1625,10 @@
         dom.deviceSelect.appendChild(opt);
         state.selectedAddress = null;
         syncAliasEditor();
+        syncThresholdEditor();
         updateChartTitle();
+        updateAlertBanner();
+        updateAlertsList();
         persistDashboardSettings();
         return;
       }
@@ -1180,7 +1646,9 @@
       }
       dom.deviceSelect.value = state.selectedAddress;
       syncAliasEditor();
+      syncThresholdEditor();
       updateChartTitle();
+      updateAlertBanner();
       if (selectedBeforeRender !== state.selectedAddress) {
         persistDashboardSettings();
       }
@@ -1195,6 +1663,8 @@
         updateCurrentLegend();
         updateTimeBox();
         updateStatusText();
+        updateAlertBanner();
+        updateAlertsList();
         drawChart();
         return;
       }
@@ -1223,6 +1693,8 @@
       updateTimeBox();
       updateStatusText();
       updateChartTitle();
+      updateAlertBanner();
+      updateAlertsList();
       drawChart();
     }
 
@@ -1235,6 +1707,8 @@
         state.latest = null;
         updateCurrentLegend();
         updateTimeBox();
+        updateAlertBanner();
+        updateAlertsList();
         dom.statusText.textContent = String(err.message || err);
         drawMessage("Unable to load data.");
       }
@@ -1255,7 +1729,9 @@
         state.selectedAddress = dom.deviceSelect.value || null;
         persistDashboardSettings();
         syncAliasEditor(true);
+        syncThresholdEditor(true);
         updateChartTitle();
+        updateAlertBanner();
         await loadHistory();
       });
 
@@ -1291,6 +1767,9 @@
       const applySelectedUnit = () => {
         state.temperatureUnit = dom.tempUnitF.checked ? "F" : "C";
         persistDashboardSettings();
+        updateThresholdTemperatureLabels();
+        syncThresholdEditor(true);
+        updateActiveAlertsFromDevices();
         updateCurrentLegend();
         updateStatusText();
         drawChart();
@@ -1312,6 +1791,7 @@
         state.aliasInputAddress = key;
         state.aliasInputDirty = false;
         renderDeviceSelect();
+        updateActiveAlertsFromDevices();
         updateStatusText();
       });
 
@@ -1324,6 +1804,7 @@
         state.aliasInputDirty = false;
         persistSensorAliases();
         renderDeviceSelect();
+        updateActiveAlertsFromDevices();
         updateStatusText();
       });
 
@@ -1338,6 +1819,42 @@
         dom.saveAliasButton.click();
       });
 
+      for (const input of [
+        dom.thresholdTempLow,
+        dom.thresholdTempHigh,
+        dom.thresholdHumidityLow,
+        dom.thresholdHumidityHigh,
+      ]) {
+        input.addEventListener("input", () => {
+          state.thresholdInputAddress = normalizeAddress(state.selectedAddress);
+          state.thresholdInputDirty = true;
+        });
+      }
+
+      dom.saveThresholdButton.addEventListener("click", () => {
+        try {
+          saveSelectedThresholds();
+        } catch (err) {
+          dom.statusText.textContent = String(err.message || err);
+        }
+      });
+
+      dom.clearThresholdButton.addEventListener("click", () => {
+        if (!state.selectedAddress) return;
+        const key = normalizeAddress(state.selectedAddress);
+        delete state.sensorThresholds[key];
+        persistSensorThresholds();
+        state.thresholdInputAddress = key;
+        state.thresholdInputDirty = false;
+        syncThresholdEditor(true);
+        console.info("[diagnostics] threshold_settings_cleared", {
+          timestamp: new Date().toISOString(),
+          address: key,
+        });
+        updateActiveAlertsFromDevices();
+        updateStatusText();
+      });
+
       window.addEventListener("resize", () => {
         drawChart();
       });
@@ -1348,8 +1865,12 @@
       applySettingsToControls();
 
       loadSensorAliases();
+      loadSensorThresholds();
+      syncThresholdEditor(true);
       updateCurrentLegend();
       updateTimeBox();
+      updateAlertsList();
+      updateAlertBanner();
       bindEvents();
       await refreshAll();
       window.setInterval(refreshAll, REFRESH_MS);

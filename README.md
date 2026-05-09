@@ -6,8 +6,11 @@ This project includes:
 - `thermpro_web.py`: web app dashboard
 - `templates/index.html`: graph UI with:
   - title `ThermPro Monitor`
+  - multiple ThermoPro sensor support with per-sensor selection
   - temperature/humidity toggles (either or both)
   - timescale control from 10 seconds to 48 hours
+  - per-sensor threshold settings for temperature/humidity
+  - on-screen threshold alert banner and active-alert list
   - live refresh every 10 seconds
   - battery status in the graph's upper-right corner
 
