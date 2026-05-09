@@ -135,6 +135,13 @@ def _coerce_float_or_none(value: object) -> float | None:
     return parsed
 
 
+def _coerce_threshold_or_none(value: object) -> float | None:
+    parsed = _coerce_float_or_none(value)
+    if parsed is None:
+        return None
+    return None if parsed == 0 else parsed
+
+
 def _dashboard_settings_from_row(row: sqlite3.Row | None) -> dict:
     if row is None:
         return dict(DEFAULT_DASHBOARD_SETTINGS)
@@ -310,10 +317,10 @@ def create_app(config: WebConfig) -> Flask:
         alias_value = str(alias).strip() if isinstance(alias, str) else ""
         alias_value = alias_value or None
 
-        temp_low_c = _coerce_float_or_none(payload.get("temp_low_c"))
-        temp_high_c = _coerce_float_or_none(payload.get("temp_high_c"))
-        humidity_low = _coerce_float_or_none(payload.get("humidity_low"))
-        humidity_high = _coerce_float_or_none(payload.get("humidity_high"))
+        temp_low_c = _coerce_threshold_or_none(payload.get("temp_low_c"))
+        temp_high_c = _coerce_threshold_or_none(payload.get("temp_high_c"))
+        humidity_low = _coerce_threshold_or_none(payload.get("humidity_low"))
+        humidity_high = _coerce_threshold_or_none(payload.get("humidity_high"))
 
         if humidity_low is not None:
             humidity_low = max(0.0, min(100.0, humidity_low))

@@ -944,10 +944,10 @@
       const humidityLow = Number(thresholds.humidityLow);
       const humidityHigh = Number(thresholds.humidityHigh);
 
-      if (Number.isFinite(tempLowC)) normalized.tempLowC = tempLowC;
-      if (Number.isFinite(tempHighC)) normalized.tempHighC = tempHighC;
-      if (Number.isFinite(humidityLow)) normalized.humidityLow = Math.max(0, Math.min(100, humidityLow));
-      if (Number.isFinite(humidityHigh)) normalized.humidityHigh = Math.max(0, Math.min(100, humidityHigh));
+      if (Number.isFinite(tempLowC) && tempLowC !== 0) normalized.tempLowC = tempLowC;
+      if (Number.isFinite(tempHighC) && tempHighC !== 0) normalized.tempHighC = tempHighC;
+      if (Number.isFinite(humidityLow) && humidityLow !== 0) normalized.humidityLow = Math.max(0, Math.min(100, humidityLow));
+      if (Number.isFinite(humidityHigh) && humidityHigh !== 0) normalized.humidityHigh = Math.max(0, Math.min(100, humidityHigh));
       return normalized;
     }
 

@@ -102,9 +102,11 @@ http://<pi-ip-address>:8080
 ```bash
 mkdir -p ~/.local/share/applications
 chmod +x /opt/thermpro-monitor/open-thermpro-monitor.sh
-cp /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/.local/share/applications/
-cp /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/Desktop/
-chmod +x ~/Desktop/thermpro-monitor.desktop
+install -m 755 /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/.local/share/applications/thermpro-monitor.desktop
+install -m 755 /opt/thermpro-monitor/desktop/thermpro-monitor.desktop ~/Desktop/thermpro-monitor.desktop
 ```
 
-You can then click `Filament Humidity/Temp` from the desktop/main page, and it will open this dashboard in full-screen kiosk mode.
+You can then click `Filament Humidity Temp` from the desktop/main page, and it will open this dashboard in full-screen kiosk mode.
+
+If Raspberry Pi OS still prompts on double-click for executable files, open File Manager and set:
+`Edit -> Preferences -> General -> Don't ask options on launch executable file`.
