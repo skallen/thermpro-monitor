@@ -6,7 +6,9 @@ This project includes:
 - `thermpro_web.py`: web app dashboard
 - `templates/index.html`: graph UI with:
   - title `ThermPro Monitor`
+  - default overview page with all connected ThermoPro sensors
   - multiple ThermoPro sensor support with per-sensor selection
+  - clickable per-sensor cards (name, humidity, temperature, battery) that open the chart view
   - temperature/humidity toggles (either or both)
   - timescale control from 10 seconds to 48 hours
   - per-sensor threshold settings for temperature/humidity

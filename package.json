@@ -1,0 +1,10 @@
+{
+  "name": "thermpro-monitor-local-checks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local npm checks for RaspberryPi-ThermPro Monitor",
+  "scripts": {
+    "build": "node scripts/local-build-check.mjs",
+    "check": "npm run build"
+  }
+}
