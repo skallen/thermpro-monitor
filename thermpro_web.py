@@ -195,6 +195,20 @@ def _normalize_address(address: str) -> str:
     return address.strip().lower()
 
 
+def _sensor_metadata_from_name(name: str | None) -> dict[str, str]:
+    normalized = str(name or "").upper()
+    if normalized.startswith("GVH5100"):
+        model = "Govee H5100"
+    elif normalized.startswith("TP3"):
+        model = "ThermoPro TP3-series"
+    else:
+        model = "Unknown"
+    return {
+        "sensor_type": "Hygrometer/Thermometer",
+        "sensor_model": model,
+    }
+
+
 def create_app(config: WebConfig) -> Flask:
     app = Flask(__name__)
     app.config["THERMPRO_DB_PATH"] = str(config.db_path)
@@ -227,8 +241,9 @@ def create_app(config: WebConfig) -> Flask:
                 """
             ).fetchall()
 
-            devices_payload = [
-                {
+            devices_payload = []
+            for row in rows:
+                device = {
                     "address": row["address"],
                     "name": row["name"],
                     "recorded_at": row["recorded_at"],
@@ -237,8 +252,8 @@ def create_app(config: WebConfig) -> Flask:
                     "battery_pct": row["battery_pct"],
                     "rssi": row["rssi"],
                 }
-                for row in rows
-            ]
+                device.update(_sensor_metadata_from_name(row["name"]))
+                devices_payload.append(device)
             default_address = devices_payload[0]["address"] if devices_payload else None
 
         return {"devices": devices_payload, "default_address": default_address}, 200
@@ -457,10 +472,14 @@ def create_app(config: WebConfig) -> Flask:
             for row in rows
         ]
 
+        metadata = _sensor_metadata_from_name(latest["name"])
+
         return (
             {
                 "address": address,
                 "name": latest["name"],
+                "sensor_type": metadata["sensor_type"],
+                "sensor_model": metadata["sensor_model"],
                 "battery_pct": latest["battery_pct"],
                 "latest_recorded_at": latest["recorded_at"],
                 "latest_temperature_c": latest["temperature_c"],

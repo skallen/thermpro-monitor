@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monitor ThermoPro BLE hygrometers and store readings in SQLite."""
+"""Monitor supported BLE hygrometers and store readings in SQLite."""
 
 from __future__ import annotations
 
@@ -22,6 +22,11 @@ from bleak.backends.scanner import AdvertisementData
 LOGGER = logging.getLogger("thermpro-monitor")
 UNPACK_TEMP_HUMID = Struct("<hB").unpack
 BATTERY_VALUE_TO_LEVEL = {0: 1, 1: 50, 2: 100}
+DEFAULT_NAME_PREFIXES = ("TP3", "GVH5100")
+GOVEE_H5100_NAME_PREFIXES = ("GVH5100",)
+GOVEE_H5100_COMPANY_ID = 0x0001
+GOVEE_H5100_MIN_TEMP_C = -40.0
+GOVEE_H5100_MAX_TEMP_C = 100.0
 
 
 def _csv_env(var_name: str, default: tuple[str, ...] = ()) -> tuple[str, ...]:
@@ -43,7 +48,7 @@ class Config:
     def from_env() -> "Config":
         db_path = Path(os.getenv("THERMPRO_DB_PATH", "/var/lib/thermpro-monitor/readings.db"))
         allowed_macs = frozenset(mac.lower() for mac in _csv_env("THERMPRO_ALLOWED_MACS"))
-        name_prefixes = _csv_env("THERMPRO_NAME_PREFIXES", default=("TP3",))
+        name_prefixes = _csv_env("THERMPRO_NAME_PREFIXES", default=DEFAULT_NAME_PREFIXES)
         min_save_seconds = float(os.getenv("THERMPRO_MIN_SAVE_SECONDS", "10"))
         log_level = os.getenv("THERMPRO_LOG_LEVEL", "INFO").upper()
         return Config(
@@ -58,10 +63,11 @@ class Config:
 @dataclass(frozen=True)
 class ParsedReading:
     temperature_c: float
-    humidity_pct: int
+    humidity_pct: float
     battery_pct: int | None
     company_id: int
     payload_hex: str
+    model: str
 
 
 def parse_tp3_manufacturer_data(manufacturer_data: dict[int, bytes]) -> ParsedReading | None:
@@ -91,8 +97,61 @@ def parse_tp3_manufacturer_data(manufacturer_data: dict[int, bytes]) -> ParsedRe
             battery_pct=battery_pct,
             company_id=company_id,
             payload_hex=payload.hex(),
+            model="thermopro_tp3",
         )
     return None
+
+
+def _decode_govee_temp_humidity(temp_humidity: bytes) -> tuple[float, float]:
+    raw = int.from_bytes(temp_humidity, byteorder="big", signed=False)
+    value = raw & 0x7FFFFF
+    temperature_c = (value // 1000) / 10.0
+    if raw & 0x800000:
+        temperature_c *= -1
+    humidity_pct = (value % 1000) / 10.0
+    return temperature_c, humidity_pct
+
+
+def parse_govee_h5100_manufacturer_data(
+    name: str,
+    manufacturer_data: dict[int, bytes],
+) -> ParsedReading | None:
+    """Parse Govee H5100 advertisement data into temperature/humidity/battery."""
+    if not name.startswith(GOVEE_H5100_NAME_PREFIXES):
+        return None
+
+    payload = manufacturer_data.get(GOVEE_H5100_COMPANY_ID)
+    if payload is None or len(payload) < 6:
+        return None
+
+    temperature_c, humidity_pct = _decode_govee_temp_humidity(payload[2:5])
+    battery_byte = payload[5]
+    battery_pct = battery_byte & 0x7F
+    sensor_error = bool(battery_byte & 0x80)
+
+    if sensor_error:
+        return None
+    if not (GOVEE_H5100_MIN_TEMP_C <= temperature_c <= GOVEE_H5100_MAX_TEMP_C):
+        return None
+    if not (0 <= humidity_pct <= 100):
+        return None
+    if not (0 <= battery_pct <= 100):
+        return None
+
+    return ParsedReading(
+        temperature_c=temperature_c,
+        humidity_pct=humidity_pct,
+        battery_pct=battery_pct,
+        company_id=GOVEE_H5100_COMPANY_ID,
+        payload_hex=payload.hex(),
+        model="govee_h5100",
+    )
+
+
+def parse_manufacturer_data(name: str, manufacturer_data: dict[int, bytes]) -> ParsedReading | None:
+    if name.startswith(GOVEE_H5100_NAME_PREFIXES):
+        return parse_govee_h5100_manufacturer_data(name, manufacturer_data)
+    return parse_tp3_manufacturer_data(manufacturer_data)
 
 
 class Storage:
@@ -112,7 +171,7 @@ class Storage:
               address TEXT NOT NULL,
               name TEXT NOT NULL,
               temperature_c REAL NOT NULL,
-              humidity_pct INTEGER NOT NULL,
+              humidity_pct REAL NOT NULL,
               battery_pct INTEGER,
               rssi INTEGER,
               company_id INTEGER NOT NULL,
@@ -127,7 +186,7 @@ class Storage:
               recorded_at TEXT NOT NULL,
               name TEXT NOT NULL,
               temperature_c REAL NOT NULL,
-              humidity_pct INTEGER NOT NULL,
+              humidity_pct REAL NOT NULL,
               battery_pct INTEGER,
               rssi INTEGER
             );
@@ -210,7 +269,7 @@ class ThermoProMonitor:
         if not self._is_target_device(address, name):
             return
 
-        parsed = parse_tp3_manufacturer_data(adv.manufacturer_data)
+        parsed = parse_manufacturer_data(name, adv.manufacturer_data)
         if not parsed:
             return
 
@@ -233,6 +292,7 @@ class ThermoProMonitor:
                     "temperature_c": parsed.temperature_c,
                     "humidity_pct": parsed.humidity_pct,
                     "battery_pct": parsed.battery_pct,
+                    "model": parsed.model,
                     "rssi": adv.rssi,
                 },
                 separators=(",", ":"),

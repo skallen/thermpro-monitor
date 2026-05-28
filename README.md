@@ -1,13 +1,13 @@
-# Raspberry Pi ThermoPro Monitor
+# Raspberry Pi ThermoPro/Govee Monitor
 
 This project includes:
 
-- `thermpro_monitor.py`: BLE collector service (writes readings to SQLite)
+- `thermpro_monitor.py`: BLE collector service for supported hygrometers (writes readings to SQLite)
 - `thermpro_web.py`: web app dashboard
 - `templates/index.html`: graph UI with:
   - overview title `Filament Humidity/Temp`
-  - default overview page with all connected ThermoPro sensors
-  - multiple ThermoPro sensor support with per-sensor selection
+  - default overview page with all connected supported sensors
+  - multiple sensor support with per-sensor selection
   - clickable per-sensor cards (name, humidity, temperature, battery) that open the chart view
   - temperature/humidity toggles (either or both)
   - timescale control from 10 seconds to 48 hours
@@ -62,7 +62,7 @@ cp thermpro-monitor.env.example thermpro-monitor.env
 Optional env settings:
 
 - `THERMPRO_ALLOWED_MACS`: comma-separated MAC list. Leave empty to accept all matching names.
-- `THERMPRO_NAME_PREFIXES`: default `TP3` for common ThermoPro hygrometers.
+- `THERMPRO_NAME_PREFIXES`: comma-separated BLE local-name prefixes. Default `TP3,GVH5100` supports common ThermoPro hygrometers and Govee H5100 Mini Hygrometer/Thermometers.
 - `THERMPRO_MIN_SAVE_SECONDS`: min seconds between writes per device (default `10`).
 - `THERMPRO_WEB_PORT`: dashboard port (default `8080`).
 

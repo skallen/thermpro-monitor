@@ -283,7 +283,7 @@
       letter-spacing: 0.05em;
       color: #1b364a;
       white-space: nowrap;
-      max-width: 62vw;
+      max-width: 34vw;
       overflow: hidden;
       text-overflow: ellipsis;
       pointer-events: none;
@@ -294,20 +294,23 @@
       top: 0.82rem;
       right: 0.82rem;
       z-index: 4;
-      font-size: 0.86rem;
+      max-width: min(42vw, 18rem);
+      font-size: 0.78rem;
+      line-height: 1.22;
       color: #11324b;
       background: rgba(255, 255, 255, 0.9);
       border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.2rem 0.7rem;
+      border-radius: 8px;
+      padding: 0.36rem 0.62rem;
       font-weight: 600;
+      white-space: pre-line;
       backdrop-filter: blur(1px);
       pointer-events: none;
     }
 
     .alert-banner {
       position: absolute;
-      top: 3rem;
+      top: 4.5rem;
       left: 50%;
       transform: translateX(-50%);
       z-index: 5;
@@ -732,11 +735,18 @@
       }
 
       #chartTitle {
+        top: 4.45rem;
+        max-width: calc(100vw - 1.4rem);
         font-size: 1.15rem;
       }
 
+      #batteryBadge {
+        max-width: min(48vw, 13rem);
+        font-size: 0.72rem;
+      }
+
       .alert-banner {
-        top: 2.95rem;
+        top: 6.25rem;
         max-width: calc(100vw - 1.3rem);
       }
 
@@ -1223,6 +1233,15 @@
       return Number.isFinite(battery) ? battery : null;
     }
 
+    function getSelectedSensorMetadata() {
+      const selected = getSelectedDevice();
+      const latest = state.latest || {};
+      return {
+        sensorType: latest.sensorType || (selected ? selected.sensor_type : null),
+        sensorModel: latest.sensorModel || (selected ? selected.sensor_model : null),
+      };
+    }
+
     function isDeviceBatteryOut(device) {
       const battery = getDeviceBatteryLevel(device);
       return battery !== null && battery <= 1;
@@ -1281,7 +1300,7 @@
       if (!state.devices.length) {
         const empty = document.createElement("div");
         empty.className = "overview-empty";
-        empty.textContent = "No ThermoPro sensors found.";
+        empty.textContent = "No supported sensors found.";
         dom.overviewGrid.appendChild(empty);
       } else {
         const devices = [...state.devices].sort((a, b) => (
@@ -2060,11 +2079,16 @@
     }
 
     function refreshBatteryBadge() {
+      const metadata = getSelectedSensorMetadata();
+      const lines = [];
       if (state.batteryPct === null || state.batteryPct === undefined) {
-        dom.batteryBadge.textContent = "Battery: --";
-        return;
+        lines.push("Battery: --");
+      } else {
+        lines.push(`Battery: ${state.batteryPct}%`);
       }
-      dom.batteryBadge.textContent = `Battery: ${state.batteryPct}%`;
+      lines.push(`Type: ${metadata.sensorType || "--"}`);
+      lines.push(`Model: ${metadata.sensorModel || "--"}`);
+      dom.batteryBadge.textContent = lines.join("\n");
     }
 
     function parseOptionalNumberInput(rawValue, label) {
@@ -2178,7 +2202,7 @@
       if (!state.devices.length) {
         const opt = document.createElement("option");
         opt.value = "";
-        opt.textContent = "No ThermoPro sensors found";
+        opt.textContent = "No supported sensors found";
         dom.deviceSelect.appendChild(opt);
         state.selectedAddress = null;
         syncAliasEditor();
@@ -2240,6 +2264,8 @@
       state.points = payload.points || [];
       state.latest = {
         name: payload.name,
+        sensorType: payload.sensor_type,
+        sensorModel: payload.sensor_model,
         latestRecordedAt: payload.latest_recorded_at,
         latestTemp: payload.latest_temperature_c,
         latestHumidity: payload.latest_humidity_pct,
